@@ -13,7 +13,7 @@ for line in F:
 
 A = np.array(A)
 print(np.max(np.max(A)))
-#plt.figure()
-#plt.imshow(A.T,cmap='RdBu')
-plt.imsave('Im2048_511_zoom_redgy.png',A.T,cmap='RdGy')
-#plt.show()
+plt.figure()
+plt.imshow(A.T,cmap='RdGy')
+# plt.imsave('Im2048_511_zoom_redgy.png',A.T,cmap='RdGy')
+plt.show()
