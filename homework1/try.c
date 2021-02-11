@@ -92,7 +92,7 @@ unsigned char pixel_value(double complex d, double b, unsigned char N){
    printf("Node %d finalized, gathering data. \n",rank);
 
    unsigned char map[h*w];
-   //rc = MPI_Gather(partition, partition_width*h, MPI_UNSIGNED_CHAR, &map, partition_width*h, MPI_UNSIGNED_CHAR, 0, &MPI_COMM_WORLD);
+   rc = MPI_Gather(partition, partition_width*h, MPI_UNSIGNED_CHAR, &map, partition_width*h, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 
 if (rank == 0) {
    FILE *fp;

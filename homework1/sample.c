@@ -63,12 +63,13 @@ unsigned char pixel_value(double complex d, double b, unsigned char N){
 
    printf("%d\n", mod);
    double zoom = 0.00390625/4;
+   // double zoom = 0.005; // 0.01;
    //scaling and centering.
    double dx = zoom*b/(w-1); //step size
    double dy = zoom*b/(h-1);
 
-   double x_offset = 2.057; // 1.25;//2.057; // offsets
-   double y_offset = 2.656; // 1.85;//2.656;
+   double x_offset = 2.057; // 1.25; // 2.057; // offsets
+   double y_offset = 2.656; // 1.85; // 2.656;
 
    if (rank == 0) {
      printf("Number of nodes available: %d\n", size);
@@ -80,7 +81,7 @@ unsigned char pixel_value(double complex d, double b, unsigned char N){
    double re;
    int n = 0;
    for (x = rank*partition_width; x <partition_width*(rank+1); x++) {
-     re = x*dx-b+ x_offset;
+     re = x*dx-b + x_offset;
      for (y = 0; y < h; y++) {
        im = y*dy-b + y_offset;
        d = re + I*im;
