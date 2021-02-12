@@ -62,13 +62,14 @@ unsigned char pixel_value(double complex d, double b, unsigned char N){
    }
 
    printf("%d\n", mod);
-   double zoom = 0.00390625/4;
+   // double zoom = 0.00390625/4;
+   double zoom = 2.0;
    //scaling and centering.
    double dx = zoom*b/(w-1); //step size
    double dy = zoom*b/(h-1);
 
-   double x_offset = 1.25;//2.057; // offsets
-   double y_offset = 1.85;//2.656;
+   double x_offset = 0; // 2.057; // 1.25;//2.057; // offsets
+   double y_offset = 0; // 2.656; // 1.85;//2.656;
 
    if (rank == 0) {
      printf("Number of nodes available: %d\n", size);

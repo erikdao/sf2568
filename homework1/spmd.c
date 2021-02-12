@@ -20,7 +20,7 @@ int main(int argc, char **argv)
     int width = 2048;
     int height = 2048;
     int b = 2.0;  // Bound
-    int N = 256;  // Max iteration - corresponding to 0 - 255 colors
+    int N = 255;  // Max iteration - corresponding to 0 - 255 colors
     FILE *fp;
     MPI_Status status;
 
@@ -55,7 +55,7 @@ int main(int argc, char **argv)
         fp = fopen("mandelbrot.txt", "w");
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
-                fprintf(fp, "%hhu ", data[x*width + y]);
+                fprintf(fp, "%hhu ", data[x * width + y]);
             }
             fprintf(fp, "\n");
         }
@@ -71,10 +71,13 @@ int main(int argc, char **argv)
         int yoff = 0;
 
         int i = 0;
-        for (int x = 0; i < wp; x++) {
-            dreal = (x + xoff) * dx - b;
+        // for (int x = 0; i < wp; x++) {
+        for (int x = rank * partition_width; x < partition_width * (rank+1); x++) {
+            // dreal = (x + xoff) * dx - b;
+            dreal = x * dx - b;
             for (int y = 0; i < height; y++) {
-                dimag = (y + yoff) * dy - b;
+                // dimag = (y + yoff) * dy - b;
+                dimag = y * dy - b;
                 complex c = dreal + I*dimag;
                 partition[i] = cal_pixel(c, b, N);
                 i++;
