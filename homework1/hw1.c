@@ -4,14 +4,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <complex.h>
 #include <mpi.h>
 
-#define PIXELS 800
+#define PIXELS 2048 
 
 /* Structure definition for complex numbers */
-typedef struct {
-    double real, imag;
-} complex;
+// typedef struct {
+//     double real, imag;
+// } complex;
 
 int master_code(int nprocs, int width, int height,
     double real_min, double real_max,
@@ -21,6 +22,18 @@ int master_code(int nprocs, int width, int height,
 int slave_code(int myID, int width, int height, double real_min,
     double real_max, double imag_min, double imag_max, int maxiter
 );
+
+int cal_pixel(complex c, double b) {
+    int max_iter = 256;
+    int count = 1;
+    complex z = 0 + I*0;
+
+    while ((cabs(z) < b) && (count < max_iter)) {
+        z = z*z + c;
+        count++;
+    }
+    return count;
+}
 
 int main(int argc, char **argv)
 {
@@ -70,14 +83,14 @@ int master_code(int nprocs, int width, int height,
     int rows_per_worker;
     MPI_Status status;
     FILE *fp;
-
+    long *data_msg = malloc((1+width) * sizeof(*data_msg));
     // Send each worker a "start" message with first row to work on
     // and number of rows
 
     // Calculate which rows each worker should work on
     first_row = 0;
     rows_per_worker = (int)height / nprocs;
-    long *data_msg = malloc((rows_per_worker * width) * sizeof(long));
+    // long *data_msg = malloc((rows_per_worker * width) * sizeof(long));
 
     for (int p=0; p < nprocs; ++p) {
         start_msg[0] = first_row;
@@ -88,22 +101,19 @@ int master_code(int nprocs, int width, int height,
 
     
     // Receive the results from workers
-    for (int k = 1; k <= nprocs; k++) {
-        MPI_Recv(data_msg, width * rows_per_worker, MPI_LONG, MPI_ANY_SOURCE,
+    fp = fopen("mandelbrot_colors.txt", "w");
+    for (int row = 0; row < height; ++row) {
+        MPI_Recv(data_msg, width+1, MPI_LONG, MPI_ANY_SOURCE,
             100, MPI_COMM_WORLD, &status);
-        printf("Received message (data) from process %d\n", k);
-
-        fp = fopen("mandelbrot_colors.txt", "a");
-        for (int i = 0; i < rows_per_worker; i++) {
-            for (int col = 0; col < width; ++col) {
-                fprintf(fp, "%hhu ", (unsigned char)data_msg[col + i * width]);
-            }
-            fprintf(fp, "\n");
+        for (int col = 0; col < width; ++col) {
+            fprintf(fp, "%hhu ", (unsigned char)data_msg[col+1]);
         }
-        fclose(fp);
+        fprintf(fp, "\n");
     }
+    fclose(fp);
 
     free(data_msg);
+    MPI_Finalize();
     return 0;
 }
 
@@ -121,8 +131,7 @@ int slave_code(int myID, int width, int height, double real_min,
     MPI_Recv(start_msg, 2, MPI_LONG, 0, 2, MPI_COMM_WORLD, &status);
     first_row = start_msg[0];
     rows = start_msg[1];
-    printf("first_row: %d; num_rows: %d", first_row, rows);
-    long *data_msg = malloc((rows * width) * sizeof(long));
+    long *data_msg = malloc((1+width) * sizeof(*data_msg));
 
     // Compute factors to scale computational region to window
     scale_real = (double) (real_max - real_min) / (double) width;
@@ -135,32 +144,33 @@ int slave_code(int myID, int width, int height, double real_min,
     for (int row = first_row; row < first_row + rows; ++row) {
         data_msg[0] = 0;
         for (int col = 0; col < width; ++col) {
-            complex z, c;
-            z.real = z.imag = 0;
+            // complex z, c;
+            // z.real = z.imag = 0;
 
-            // Scale display coordinates to actual region
-            c.real = real_min + ((double) col * scale_real);
-            c.imag = imag_min + ((double) (height-1-row) * scale_imag);
+            // // Scale display coordinates to actual region
+            // c.real = real_min + ((double) col * scale_real);
+            // c.imag = imag_min + ((double) (height-1-row) * scale_imag);
 
-            int k = 0;
-            double lengthsq, temp;
-            do {
-                temp = z.real*z.real - z.imag*z.imag + c.real;
-                z.imag = 2*z.real*z.imag + c.imag;
-                z.real = temp;
-                lengthsq = z.real*z.real + z.imag*z.imag;
-                ++k;
-            } while (lengthsq < (2*2) && k < maxiter);
-
+            // int k = 0;
+            // double lengthsq, temp;
+            // do {
+            //     temp = z.real*z.real - z.imag*z.imag + c.real;
+            //     z.imag = 2*z.real*z.imag + c.imag;
+            //     z.real = temp;
+            //     lengthsq = z.real*z.real + z.imag*z.imag;
+            //     ++k;
+            // } while (lengthsq < (2*2) && k < maxiter);
+            double dreal = real_min + ((double) col * scale_real);
+            double dimag = imag_min + ((double) (height-1-row) * scale_imag);
+            complex c = dreal + I*dimag;
+            int k = cal_pixel(c, 2.0);
             // Scale color and store
             long color = (long)((k-1) * scale_color) + min_color;
-            // data_msg[col+1] = color;
-            *data_msg++ = color;
+            data_msg[col+1] = color;
         }
+        MPI_Send(data_msg, 1 + width, MPI_LONG, 0, 100, MPI_COMM_WORLD);
     }
-
-    MPI_Send(data_msg, rows * width, MPI_LONG, 0, 100, MPI_COMM_WORLD);
-
+    printf("Node %d finished\n", myID);
     free(data_msg);
     return 0;
 }
