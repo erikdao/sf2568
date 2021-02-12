@@ -1,0 +1,11 @@
+# MacOS
+.DS_Store
+
+# Editor
+.vscode/
+
+# Compiled file
+*.o
+*.so
+
+output/
