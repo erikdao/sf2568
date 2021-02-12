@@ -62,7 +62,8 @@ unsigned char pixel_value(double complex d, double b, unsigned char N){
    }
 
    printf("%d\n", mod);
-   double zoom = 0.00390625/4;
+   // double zoom = 0.00390625/4;
+   double zoom = 2.0;
    // double zoom = 0.005; // 0.01;
    //scaling and centering.
    double dx = zoom*b/(w-1); //step size

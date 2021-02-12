@@ -12,8 +12,10 @@ for line in F:
     A.append(lin)
 
 A = np.array(A)
+print('A', A.shape)
 print(np.max(np.max(A)))
 plt.figure()
-plt.imshow(A.T,cmap='RdGy')
-# plt.imsave('Im2048_511_zoom_redgy.png',A.T,cmap='RdGy')
+# # plt.imshow(A.T,cmap='RdGy')
+plt.imshow(A, cmap='RdGy')
+# # plt.imsave('Im2048_511_zoom_redgy.png',A.T,cmap='RdGy')
 plt.show()
