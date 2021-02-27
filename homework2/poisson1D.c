@@ -18,7 +18,16 @@
 
 /* implement coefficient functions */
 extern double r(const double x);
-extern double f(const double x);
+extern double f(const double x); 
+
+double r(const double x) {
+    // Change here before submission: -x
+    return x - 1;
+}
+
+double f(const double x) {
+    return 2 + (x - 1) * x * (x - 1);
+}
 
 /* We assume linear data distribution. The formulae according to the lecture
    are:
@@ -35,7 +44,9 @@ extern double f(const double x);
 int main(int argc, char *argv[])
 {
     /* local variable */
-    int P, p, tag;
+    int P, p, tag, L, R, I, n, color, step, i;
+    double h, *u, *unew, *ff, *rr, x_n;
+    MPI_Status status;
 
     /* Initialize MPI */
     MPI_Init(&argc, &argv);
@@ -46,11 +57,13 @@ int main(int argc, char *argv[])
         exit(1);
     }
     tag = 100;
+    color = p % 2;  // 0: red, 1: black
+    printf("Node %d, color: %d\n", p, color);
     /* Compute local indices for data distribution */
     L = N / P;
     R = N % P;
     I = (N + P - p - 1) / P;  // Number of local elements
-    n = p * L + MIN(p, R) + i;
+    h = 1.0 / (N + 1);
 
     /* arrays */
     unew = (double *) malloc(I*sizeof(double));
@@ -59,28 +72,84 @@ int main(int argc, char *argv[])
     - the initial guess is set to zero */
     u = (double *) calloc(I+2, sizeof(double));
 
+    ff = (double *) calloc(I, sizeof(double));
+    rr = (double *) calloc(I, sizeof(double));
+
+    for (i = 0; i < I; i++) {
+        n = p * L + MIN(p, R) + i;  // Global index for given (p, i)
+        x_n = n * h;
+        ff[i] = f(x_n);
+        rr[i] = r(x_n);
+    }
 
     /* Jacobi iteration */
     for (step = 0; step < SMX; step++) {
+        if (step % 100000 == 0) {
+            printf("Jacobi, processor %d, iter %d\n", p, step);
+        }
         /* RB communication of overlap */
-
+        if (color == 0) { // red
+            MPI_Send(&u[I-2], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD);
+            MPI_Recv(&u[I-1], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD, &status);
+            if (p != 0) {
+                MPI_Send(&u[1], 1, MPI_DOUBLE, p-1, tag, MPI_COMM_WORLD);
+                MPI_Recv(&u[0], 1, MPI_DOUBLE, p-1, tag, MPI_COMM_WORLD, &status);
+            }
+        } else { // black
+            MPI_Recv(&u[0], 1, MPI_DOUBLE, p-1, tag, MPI_COMM_WORLD, &status);
+            MPI_Send(&u[1], 1, MPI_DOUBLE, p-1, tag, MPI_COMM_WORLD);
+            if (p != P-1) {
+                MPI_Recv(&u[I-1], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD, &status);
+                MPI_Send(&u[I-2], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD);
+            }
+        }
         /* local iteration step */
-        /*
-            unew[i] = (u[i]+u[i+2]-h*h*ff[i])/(2.0-h*h*rr[i]);
-        */
+        for (i = 1; i < I-1; i++) {
+            // unew[i] = (u[i]+u[i+2]-h*h*ff[i])/(2.0-h*h*rr[i]);
+            unew[i] = (u[i-1] + u[i+1] - h*h*ff[i]) / (2.0 - h*h*rr[i]);
+        }
+        for (i = 0; i < I; i++) {
+            u[i+1] = unew[i];
+        }
     }
 
     /* output for graphical representation */
     /* Instead of using gather (which may lead to excessive memory requirements
     on the master process) each process will write its own data portion. This
     introduces a sequentialization: the hard disk can only write (efficiently)
-    sequentially. Therefore, we use the following strategy:
-    1. The master process writes its portion. (file creation)
-    2. The master sends a signal to process 1 to start writing.
-    3. Process p waites for the signal from process p-1 to arrive.
-    4. Process p writes its portion to disk. (append to file)
-    5. process p sends the signal to process p+1 (if it exists).
-    */
+    sequentially. Therefore, we use the following strategy: */
+    FILE *f;
+    double signal;
+    // 1. The master process writes its portion. (file creation)
+    if (p == 0) {
+        f = fopen("possion.txt", "w");
+        for (i = 0; i < I; i++) {
+            fprintf(f, "%f ", unew[i]);
+        }
+        fclose(f);
+        // 2. The master sends a signal to process 1 to start writing.
+        signal = 1.0;
+        MPI_Send(&signal, 1, MPI_DOUBLE, 1, tag, MPI_COMM_WORLD);
+        printf("Master processor wrote and sent signal\n");
+    } else {
+        // 3. Process p waites for the signal from process p-1 to arrive.
+        MPI_Recv(&signal, 1, MPI_DOUBLE, p-1, tag, MPI_COMM_WORLD, &status);
+        printf("Received signal %f from processor %d\n", signal, p-1);
+        if (signal == 1.) {
+            // 4. Process p writes its portion to disk. (append to file)
+            f = fopen("possion.txt", "a");
+            for (i = 0; i < I; i++) {
+                fprintf(f, "%f ", unew[i]);
+            }
+            fclose(f);
+            printf("Processor %d wrote its portion\n", p);
+            // 5. process p sends the signal to process p+1 (if it exists).
+            if (p != P - 1) {
+                MPI_Send(&signal, 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD);
+                printf("Processor %d sent signal to processor %d\n", p, p+1);
+            }
+        }
+    }
 
     /* That's it */
     MPI_Finalize();

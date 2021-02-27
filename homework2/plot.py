@@ -1,7 +1,7 @@
 from matplotlib import pyplot as plt
 import numpy as np
 
-file_name = "ufile.txt"
+file_name = "possion.txt"
 
 F = open(file_name,"r")
 
