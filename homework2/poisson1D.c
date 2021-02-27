@@ -4,7 +4,8 @@
  *
  * C Michael Hanke 2006-12-12
  */
-
+#include <stdlib.h>
+#include <stdio.h>
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
@@ -34,6 +35,7 @@ extern double f(const double x);
 int main(int argc, char *argv[])
 {
     /* local variable */
+    int P, p, tag;
 
     /* Initialize MPI */
     MPI_Init(&argc, &argv);
@@ -43,7 +45,12 @@ int main(int argc, char *argv[])
         fprintf(stdout, "Too few discretization points...\n");
         exit(1);
     }
+    tag = 100;
     /* Compute local indices for data distribution */
+    L = N / P;
+    R = N % P;
+    I = (N + P - p - 1) / P;  // Number of local elements
+    n = p * L + MIN(p, R) + i;
 
     /* arrays */
     unew = (double *) malloc(I*sizeof(double));
