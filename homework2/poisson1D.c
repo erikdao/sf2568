@@ -22,11 +22,15 @@ extern double f(const double x);
 
 double r(const double x) {
     // Change here before submission: -x
+    // return x - 1;
+    // return -x;
     return x - 1;
 }
 
 double f(const double x) {
-    return 2 + (x - 1) * x * (x - 1);
+    // return -2 + x * x * (x - 1);
+    // return 2 + (x - 1) * x * (x - 1);
+    return 6*x - 3 + (x-1)*x*(x-0.5)*(x-1);
 }
 
 /* We assume linear data distribution. The formulae according to the lecture
@@ -65,6 +69,7 @@ int main(int argc, char *argv[])
     I = (N + P - p - 1) / P;  // Number of local elements
     h = 1.0 / (N + 1);
 
+    printf("Processor %d, L = %d; R = %d; I = %d; h = %f\n", p, L, R, I, h);
     /* arrays */
     unew = (double *) malloc(I*sizeof(double));
     /* Note: The following allocation includes additionally:
@@ -72,8 +77,8 @@ int main(int argc, char *argv[])
     - the initial guess is set to zero */
     u = (double *) calloc(I+2, sizeof(double));
 
-    ff = (double *) calloc(I, sizeof(double));
-    rr = (double *) calloc(I, sizeof(double));
+    ff = (double *) malloc(I * sizeof(double));
+    rr = (double *) malloc(I * sizeof(double));
 
     for (i = 0; i < I; i++) {
         n = p * L + MIN(p, R) + i;  // Global index for given (p, i)
@@ -89,8 +94,8 @@ int main(int argc, char *argv[])
         }
         /* RB communication of overlap */
         if (color == 0) { // red
-            MPI_Send(&u[I-2], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD);
-            MPI_Recv(&u[I-1], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD, &status);
+            MPI_Send(&u[I], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD);
+            MPI_Recv(&u[I+1], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD, &status);
             if (p != 0) {
                 MPI_Send(&u[1], 1, MPI_DOUBLE, p-1, tag, MPI_COMM_WORLD);
                 MPI_Recv(&u[0], 1, MPI_DOUBLE, p-1, tag, MPI_COMM_WORLD, &status);
@@ -99,14 +104,14 @@ int main(int argc, char *argv[])
             MPI_Recv(&u[0], 1, MPI_DOUBLE, p-1, tag, MPI_COMM_WORLD, &status);
             MPI_Send(&u[1], 1, MPI_DOUBLE, p-1, tag, MPI_COMM_WORLD);
             if (p != P-1) {
-                MPI_Recv(&u[I-1], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD, &status);
-                MPI_Send(&u[I-2], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD);
+                MPI_Recv(&u[I+1], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD, &status);
+                MPI_Send(&u[I], 1, MPI_DOUBLE, p+1, tag, MPI_COMM_WORLD);
             }
         }
         /* local iteration step */
-        for (i = 1; i < I-1; i++) {
-            // unew[i] = (u[i]+u[i+2]-h*h*ff[i])/(2.0-h*h*rr[i]);
-            unew[i] = (u[i-1] + u[i+1] - h*h*ff[i]) / (2.0 - h*h*rr[i]);
+        for (i = 0; i < I; i++) {
+            unew[i] = (u[i]+u[i+2]-h*h*ff[i])/(2.0-h*h*rr[i]);
+            // unew[i] = (u[i-1] + u[i+1] - h*h*ff[i]) / (2.0 - h*h*rr[i]);
         }
         for (i = 0; i < I; i++) {
             u[i+1] = unew[i];
