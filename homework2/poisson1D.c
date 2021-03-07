@@ -6,6 +6,7 @@
  */
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
@@ -21,8 +22,6 @@ extern double r(const double x);
 extern double f(const double x); 
 
 double r(const double x) {
-    // Change here before submission: -x
-    // return x - 1;
     // return -x;
     return x - 1;
 }
