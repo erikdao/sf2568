@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <mpi.h>
+#include <time.h>
 
 /**
  * Returns -1 if a < b
@@ -51,7 +52,8 @@ void mergeArrays(double *arr1, double *arr2, int n1, int n2, double *arr3)
 
 int main(int argc, char **argv) {
     int P, myrank, N, I;
-    
+    double time_spent = 0.0;
+
     MPI_Init(&argc, &argv);
     MPI_Status status;
     MPI_Comm_size(MPI_COMM_WORLD, &P);
@@ -75,7 +77,8 @@ int main(int argc, char **argv) {
     }
     double *a = malloc(sizeof(double) * I);
     // double *result = malloc(length_x * sizeof(double) * 2);
-
+    
+    clock_t begin = clock();
     // Local sorting
     qsort(x, I, sizeof(double), cmpfunc);
 
@@ -120,8 +123,11 @@ int main(int argc, char **argv) {
         printArray(x, size_after);
         //free(result);
     }
-    //free(x);
-    //free(a);
+    clock_t end = clock();
+    time_spent += (double)(end - begin) / CLOCKS_PER_SEC;
+    printf("Time elpased is %f seconds", time_spent);
+    free(x);
+    free(a);
     MPI_Finalize();
     return 0;
 }
