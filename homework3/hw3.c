@@ -82,41 +82,46 @@ int main(int argc, char **argv) {
     // Global sorting phase
     int evenproc = ((myrank % 2) == 0);
     int evenphase = 1;
+    
     for (int step = 0; step < P; step++) {
+        int size_before = I * pow(2, step);
+        int size_after = I * pow(2, step + 1);
         if (evenproc && evenphase){
-            MPI_Recv(a,I,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD,&status);
-            MPI_Send(x,I,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD);
+            MPI_Recv(a,size_before,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD,&status);
+            MPI_Send(x,size_before,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD);
         }
         else if(evenproc && !evenphase){
             if(myrank >= 2){
-                MPI_Recv(a,I,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD,&status);
-                MPI_Send(x,I,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD);
+                MPI_Recv(a,size_before,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD,&status);
+                MPI_Send(x,size_before,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD);
             }
         }
         else if(!evenproc && evenphase){
-            MPI_Send(x,I,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD);
-            MPI_Recv(a,I,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD,&status);
+            MPI_Send(x,size_before,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD);
+            MPI_Recv(a,size_before,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD,&status);
         }
         else if(!evenproc && !evenphase){
             if(myrank <= P - 3){
-                MPI_Send(x,I,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD);
-                MPI_Recv(a,I,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD,&status);
+                MPI_Send(x,size_before,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD);
+                MPI_Recv(a,size_before,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD,&status);
             }
         }
-	int size_x = I * pow(2, step + 1);
-	double *result = malloc(size_x * sizeof(double));
-        mergeArrays(x,a,size_x,size_x,result);
+	double *result = malloc(size_after * sizeof(double));
+        mergeArrays(x,a,size_before,size_before,result);
         free(x);
         free(a);
-        x = malloc(sizeof(double) * size_x); 
-        a = malloc(sizeof(double) * size_x); 
+        x = malloc(sizeof(double) * size_after); 
+        a = malloc(sizeof(double) * size_after); 
         x = result;
         evenphase = !evenphase;
         printf("evenphase: %d\n", evenphase);
         printf("rank: %d\n",myrank);
         printf("step: %d\n",step);
-        printArray(x, size_x);
+        printArray(x, size_after);
+        //free(result);
     }
+    //free(x);
+    //free(a);
     MPI_Finalize();
     return 0;
 }
