@@ -15,10 +15,9 @@ int cmpfunc(const void * x, const void * y) {
     return 0;
 }
 
-void printArray(double *x){
-    int len = sizeof(x)/sizeof(x[0]);
-    for( int i = 0; i<len;i++){
-        printf("%f ",x[i]);
+void printArray(double *x, int len){
+    for( int i = 0; i<len; i++){
+        printf("%f ", x[i]);
     }
     printf("\n");
 }
@@ -75,7 +74,7 @@ int main(int argc, char **argv) {
         x[i] = ((double) random()) / RAND_MAX;
     }
     double *a = malloc(sizeof(double) * I);
-    double *result = malloc(sizeof(x) + sizeof(a));
+    // double *result = malloc(length_x * sizeof(double) * 2);
 
     // Local sorting
     qsort(x, I, sizeof(double), cmpfunc);
@@ -83,7 +82,7 @@ int main(int argc, char **argv) {
     // Global sorting phase
     int evenproc = ((myrank % 2) == 0);
     int evenphase = 1;
-    for (int step = 0; step < P / 2; step++) {
+    for (int step = 0; step < P; step++) {
         if (evenproc && evenphase){
             MPI_Recv(a,I,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD,&status);
             MPI_Send(x,I,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD);
@@ -104,17 +103,19 @@ int main(int argc, char **argv) {
                 MPI_Recv(a,I,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD,&status);
             }
         }
-        mergeArrays(x,a,I,I,result);
+	int size_x = I * pow(2, step + 1);
+	double *result = malloc(size_x * sizeof(double));
+        mergeArrays(x,a,size_x,size_x,result);
         free(x);
         free(a);
-        x = malloc(sizeof(double) * I * pow(2, step)); 
-        a = malloc(sizeof(double) * I * pow(2, step)); 
+        x = malloc(sizeof(double) * size_x); 
+        a = malloc(sizeof(double) * size_x); 
         x = result;
         evenphase = !evenphase;
         printf("evenphase: %d\n", evenphase);
         printf("rank: %d\n",myrank);
         printf("step: %d\n",step);
-        printArray(x);
+        printArray(x, size_x);
     }
     MPI_Finalize();
     return 0;
