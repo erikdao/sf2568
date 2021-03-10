@@ -66,16 +66,49 @@ int main(int argc, char **argv) {
     N = atoi(argv[1]);
 
     // Local size
-    I = (N + P - myrank - 1) / P;
-    srandom(myrank + 1);
-
-    // Generate data
+    //I = (N + P - myrank - 1) / P;
+    I = N/P;
+    if(N%P != 0)
+        {I += 1;}
     double *x = malloc(sizeof(double) * I);
-    for (int i = 0; i < I; i++) {
-        x[i] = ((double) random()) / RAND_MAX;
+    
+    // Generate data
+    //fix from here
+    /*
+    if(N%P != 0){
+        I += 1;
+        srandom(myrank +1);
+        double *x = malloc(sizeof(double) * (I+1));
+        for (int i = 0; i < I; i++) {
+            x[i] = ((double) random()) / RAND_MAX;
+        }
+        if (myrank >= N%P){
+            x[I] = -1.0;
+        }
     }
+    else{
+        I = N/P;
+        srandom(myrank + 1);
+        double *x = malloc(sizeof(double) * I);
+        for (int i = 0; i < I; i++) {
+            x[i] = ((double) random()) / RAND_MAX;
+        }
+    }
+    */
     double *a = malloc(sizeof(double) * I);
     // double *result = malloc(length_x * sizeof(double) * 2);
+    srandom(myrank +1);
+    for (int i = 0; i < I; i++) {
+        x[i] = ((double) random()) / RAND_MAX;
+        }
+
+    if(N%P != 0){
+        printf("modulo: %d\n",N%P);
+        printf("myrank: %d\n",myrank);
+        if (myrank >= N%P){
+            x[I-1] = -1.0;
+        }
+    }
 
     // Local sorting
     qsort(x, I, sizeof(double), cmpfunc);
@@ -86,14 +119,13 @@ int main(int argc, char **argv) {
 
     // Initialize the result array, its size will be changed later
     double *result = malloc(I * sizeof(double));
-
-    for (int step = 0; step < P/2 - 1; step++) {
+    int size_before,size_after; 
+    for (int step = 0; step < P/2; step++) {
 	printf("Rank: %d; step: %d; evenphase: %d\n", myrank, step, evenphase);
-        int size_before = I * pow(2, step);
-        int size_after = I * pow(2, step + 1);
+        size_before = I * pow(2, step); 
+        size_after = I * pow(2, step + 1);
 	printf("size_before: %d; size_after: %d\n", size_before, size_after);
-	// printf("x\t"); printArray(x, size_before);
-	// printf("a\t"); printArray(a, size_before);
+	printf("x\t"); printArray(x, size_before);
 
         if (evenproc && evenphase){
             MPI_Recv(a,size_before,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD,&status);
@@ -116,7 +148,7 @@ int main(int argc, char **argv) {
             }
         }
 	result = realloc(result, size_after * sizeof(double));
-        mergeArrays(x,a,size_before,size_before,result);
+    mergeArrays(x,a,size_before,size_before,result);
 	printf("Merged: "); printArray(result, size_after);
         x = realloc(x, sizeof(double) * size_after);
         a = realloc(a, sizeof(double) * size_after);
@@ -124,6 +156,12 @@ int main(int argc, char **argv) {
         evenphase = !evenphase;
 	printf("-------------------------------\n");
     }
+    int size_final = size_after - N%P;
+    double *final = malloc(sizeof(double) * (size_final) );
+    for (int i = 0; i < size_final; i++) {
+        final[i] = result[i + (N%P)];
+    }
+    printf("Final: "); printArray(final, size_final);
     // free(x);
     // free(a);
     // free(result);
