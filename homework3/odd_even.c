@@ -24,6 +24,7 @@ int main(int argc, char *argv[]) {
 
     // Local variables
     int N = atoi(argv[1]);
+    // Data is load-balanced linearly distributed into processes
     int I = (N + size - rank - 1) / size;
 
     // Data generation
@@ -41,18 +42,21 @@ int main(int argc, char *argv[]) {
 
     // Odd-even transposition
     for (int phase = 0; phase < size; phase++) {
-	MPI_Barrier(MPI_COMM_WORLD);
+	// MPI_Barrier(MPI_COMM_WORLD);
 	int neighbor = compute_neighbor(phase, rank, size);
+	int neightbor_size = (N + size - neighbor - 1) / size;
+	a = realloc(a, sizeof(double) * neightbor_size);
+	temp = realloc(temp, sizeof(double) * (I + neightbor_size));
 
 	if (neighbor >= 0 && neighbor < size) {
             MPI_Sendrecv(x, I, MPI_DOUBLE, neighbor, phase,
-			 a, I, MPI_DOUBLE, neighbor, phase,
+			 a, neightbor_size, MPI_DOUBLE, neighbor, phase,
 			 MPI_COMM_WORLD, &status);
 
 	    if (rank < neighbor) {
-	        merge_arrays(x, I, a, I, temp, 1);
+	        merge_arrays(x, I, a, neightbor_size, temp, 1);
 	    } else {
-	        merge_arrays(x, I, a, I, temp, 0);
+	        merge_arrays(x, I, a, neightbor_size, temp, 0);
 	    }
 	}
     }
@@ -136,16 +140,16 @@ int compare(const void *x, const void *y) {
  * or the upper part in the `src` array after this merge operation
  */
 void merge_arrays(
-    double *src, int len_src, double *rec, int len_rec,
+    double *src, int len_src, double *recv, int len_recv,
     double *temp, unsigned int keep_low
 ) {
     int i = 0, j = 0, k = 0;
 
-    while (i < len_src && j < len_rec) {
-        if (src[i] < rec[j])
+    while (i < len_src && j < len_recv) {
+        if (src[i] < recv[j])
 	    temp[k++] = src[i++];
 	else
-	    temp[k++] = rec[j++];
+	    temp[k++] = recv[j++];
     }
 
     // Store remaining elements of first array
@@ -153,15 +157,19 @@ void merge_arrays(
 	temp[k++] = src[i++];
 
     // Store remaining elements of second array
-    while (j < len_rec)
-	temp[k++] = rec[j++];
+    while (j < len_recv)
+	temp[k++] = recv[j++];
 
     if (keep_low == 1) {
+	// Keep the lower part of the sorted `temp` array in
+	// `src` for this process
 	for (int i = 0; i < len_src; i++) {
 	    src[i] = temp[i];
 	}
     } else if (keep_low == 0) {
-    	for (int i = len_src, j = 0; j < len_rec; i++, j++) {
+	// Keep the upper part of the sorted `temp` array in
+	// `src` for this process
+    	for (int i = len_src, j = 0; j < len_recv; i++, j++) {
 	    src[j] = temp[i];
 	}
     }
