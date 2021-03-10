@@ -3,6 +3,8 @@
 #include <math.h>
 #include <mpi.h>
 
+#define EMPTY_PLACEHOLDER -1.0
+
 void print_array(double *arr, const int len);
 int compute_neighbor(int phase, int rank, int size);
 int compare(const void *, const void *);
@@ -25,16 +27,23 @@ int main(int argc, char *argv[]) {
     // Local variables
     int N = atoi(argv[1]);
     // Data is load-balanced linearly distributed into processes
-    int I = (N + size - rank - 1) / size;
+    // int I = (N + size - rank - 1) / size;
+    int I = N / size;
+    if (N % size != 0)
+	I += 1;
 
     // Data generation
     srandom(rank + 1);
     double *x = malloc(sizeof(double) * I);
     double *a = malloc(sizeof(double) * I);
-    double *temp = malloc(sizeof(double) * I * 2);
+    double *temp = malloc(sizeof(double) * I *2);
 
     for (int i = 0; i < I; i++) {
         x[i] = ((double) random()) / RAND_MAX;
+    }
+
+    if ((N % size != 0) && (rank >= N % size)) {
+        x[I-1] = EMPTY_PLACEHOLDER;
     }
 
     // Local sort
@@ -42,21 +51,18 @@ int main(int argc, char *argv[]) {
 
     // Odd-even transposition
     for (int phase = 0; phase < size; phase++) {
-	// MPI_Barrier(MPI_COMM_WORLD);
+	MPI_Barrier(MPI_COMM_WORLD);
 	int neighbor = compute_neighbor(phase, rank, size);
-	int neightbor_size = (N + size - neighbor - 1) / size;
-	a = realloc(a, sizeof(double) * neightbor_size);
-	temp = realloc(temp, sizeof(double) * (I + neightbor_size));
 
 	if (neighbor >= 0 && neighbor < size) {
             MPI_Sendrecv(x, I, MPI_DOUBLE, neighbor, phase,
-			 a, neightbor_size, MPI_DOUBLE, neighbor, phase,
+			 a, I, MPI_DOUBLE, neighbor, phase,
 			 MPI_COMM_WORLD, &status);
 
 	    if (rank < neighbor) {
-	        merge_arrays(x, I, a, neightbor_size, temp, 1);
+	        merge_arrays(x, I, a, I, temp, 1);
 	    } else {
-	        merge_arrays(x, I, a, neightbor_size, temp, 0);
+	        merge_arrays(x, I, a, I, temp, 0);
 	    }
 	}
     }
@@ -70,7 +76,9 @@ int main(int argc, char *argv[]) {
     if (rank == 0) { // master process
     	f = fopen(fname, "w");
 	for (int i = 0; i < I; i++) {
-	    fprintf(f, "%1.10f\n", x[i]);
+	    if (x[i] != EMPTY_PLACEHOLDER) {
+	    	fprintf(f, "%1.10f\n", x[i]);
+	    }
 	}
 	fclose(f);
 	signal = 1;
@@ -80,7 +88,9 @@ int main(int argc, char *argv[]) {
 	if (signal == 1) {
 	    f = fopen(fname, "a");
 	    for (int i = 0; i < I; i++) {
-	        fprintf(f, "%1.10f\n", x[i]);
+		if (x[i] != EMPTY_PLACEHOLDER) {
+	       	    fprintf(f, "%1.10f\n", x[i]);
+		}
 	    }
 	    fclose(f);
 	    if (rank != size - 1) {
@@ -90,8 +100,6 @@ int main(int argc, char *argv[]) {
     }
 
     free(x);
-    free(a);
-    free(temp);
 
     MPI_Finalize();
     return 0;
