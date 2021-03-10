@@ -10,3 +10,6 @@
 
 output/
 *build/
+
+# Output file
+*.txt

@@ -3,11 +3,6 @@
 #include <math.h>
 #include <mpi.h>
 
-/**
- * Returns -1 if a < b
- *          1 if a > b
- *          0 if a = b
- */
 int cmpfunc(const void * x, const void * y) {
     double xx = *(double*)x, yy = *(double*)y;
     if (xx < yy) return -1;
@@ -47,7 +42,6 @@ void mergeArrays(double *arr1, double *arr2, int n1, int n2, double *arr3)
     // Store remaining elements of second array
     while (j < n2)
         arr3[k++] = arr2[j++];
-    printf("k = %d\n", k);
 }
 
 int main(int argc, char **argv) {
@@ -72,39 +66,13 @@ int main(int argc, char **argv) {
         {I += 1;}
     double *x = malloc(sizeof(double) * I);
     
-    // Generate data
-    //fix from here
-    /*
-    if(N%P != 0){
-        I += 1;
-        srandom(myrank +1);
-        double *x = malloc(sizeof(double) * (I+1));
-        for (int i = 0; i < I; i++) {
-            x[i] = ((double) random()) / RAND_MAX;
-        }
-        if (myrank >= N%P){
-            x[I] = -1.0;
-        }
-    }
-    else{
-        I = N/P;
-        srandom(myrank + 1);
-        double *x = malloc(sizeof(double) * I);
-        for (int i = 0; i < I; i++) {
-            x[i] = ((double) random()) / RAND_MAX;
-        }
-    }
-    */
     double *a = malloc(sizeof(double) * I);
-    // double *result = malloc(length_x * sizeof(double) * 2);
     srandom(myrank +1);
     for (int i = 0; i < I; i++) {
         x[i] = ((double) random()) / RAND_MAX;
-        }
+    }
 
     if(N%P != 0){
-        printf("modulo: %d\n",N%P);
-        printf("myrank: %d\n",myrank);
         if (myrank >= N%P){
             x[I-1] = -1.0;
         }
@@ -120,41 +88,45 @@ int main(int argc, char **argv) {
     // Initialize the result array, its size will be changed later
     double *result = malloc(I * sizeof(double));
     int size_before,size_after; 
-    for (int step = 0; step < P/2; step++) {
-	printf("Rank: %d; step: %d; evenphase: %d\n", myrank, step, evenphase);
+
+    for (int step = 0; step < P/2 - 1; step++) {
         size_before = I * pow(2, step); 
         size_after = I * pow(2, step + 1);
-	printf("size_before: %d; size_after: %d\n", size_before, size_after);
-	printf("x\t"); printArray(x, size_before);
+	if (myrank == 1) {
+	    printf("Rank: %d; step: %d; evenphase: %d\n", myrank, step, evenphase);
+ 	    printf("size_before: %d; size_after: %d\n", size_before, size_after);
+	    printf("x\t"); printArray(x, size_before);
+	}
 
-        if (evenproc && evenphase){
+        if (evenproc && evenphase){ // Even processor, even phase
             MPI_Recv(a,size_before,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD,&status);
             MPI_Send(x,size_before,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD);
         }
-        else if(evenproc && !evenphase){
+        else if(evenproc && !evenphase){ // Even processor, odd phase
             if(myrank >= 2){
                 MPI_Recv(a,size_before,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD,&status);
                 MPI_Send(x,size_before,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD);
             }
         }
-        else if(!evenproc && evenphase){
+        else if(!evenproc && evenphase){ // Odd processor, even phase
             MPI_Send(x,size_before,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD);
             MPI_Recv(a,size_before,MPI_DOUBLE,myrank-1,100,MPI_COMM_WORLD,&status);
         }
-        else if(!evenproc && !evenphase){
+        else if(!evenproc && !evenphase){ // Odd processor, odd phase
             if(myrank <= P - 3){
                 MPI_Send(x,size_before,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD);
                 MPI_Recv(a,size_before,MPI_DOUBLE,myrank+1,100,MPI_COMM_WORLD,&status);
             }
         }
 	result = realloc(result, size_after * sizeof(double));
-    mergeArrays(x,a,size_before,size_before,result);
-	printf("Merged: "); printArray(result, size_after);
+    	mergeArrays(x,a,size_before,size_before,result);
+	if (myrank == 1) {
+	    printf("Merged: "); printArray(result, size_after);
+	}
         x = realloc(x, sizeof(double) * size_after);
         a = realloc(a, sizeof(double) * size_after);
         x = result;
         evenphase = !evenphase;
-	printf("-------------------------------\n");
     }
     int size_final = size_after - N%P;
     double *final = malloc(sizeof(double) * (size_final) );
@@ -162,9 +134,6 @@ int main(int argc, char **argv) {
         final[i] = result[i + (N%P)];
     }
     printf("Final: "); printArray(final, size_final);
-    // free(x);
-    // free(a);
-    // free(result);
     MPI_Finalize();
     return 0;
 }
