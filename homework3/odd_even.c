@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <mpi.h>
+#include <time.h>
 
 #define EMPTY_PLACEHOLDER -1.0
 
@@ -12,6 +13,7 @@ void merge_arrays(double *, int, double *, int, double *, unsigned int);
 
 int main(int argc, char *argv[]) {
     int size, rank;
+    double time_spent = 0.0;
 
     if (argc < 2) {
         printf("N needs to be given\n");
@@ -45,7 +47,7 @@ int main(int argc, char *argv[]) {
     if ((N % size != 0) && (rank >= N % size)) {
         x[I-1] = EMPTY_PLACEHOLDER;
     }
-
+    clock_t begin = clock();
     // Local sort
     qsort(x, I, sizeof(double), compare);
 
@@ -66,6 +68,9 @@ int main(int argc, char *argv[]) {
 	    }
 	}
     }
+    clock_t end=clock();
+    time_spent += (double)(end-begin)/CLOCKS_PER_SEC;
+    printf("time spent is %f seconds\n", time_spent);
 
     // Sequentially write the sorted array
     int signal = 0;
