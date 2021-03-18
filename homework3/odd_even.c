@@ -14,6 +14,7 @@ void merge_arrays(double *, int, double *, int, double *, unsigned int);
 int main(int argc, char *argv[]) {
     int size, rank;
     double time_spent = 0.0;
+    double time_spent2 = 0.0;
 
     if (argc < 2) {
         printf("N needs to be given\n");
@@ -50,8 +51,9 @@ int main(int argc, char *argv[]) {
     clock_t begin = clock();
     // Local sort
     qsort(x, I, sizeof(double), compare);
-
+    clock_t end=clock();
     // Odd-even transposition
+    clock_t begin2 = clock();
     for (int phase = 0; phase < size; phase++) {
 	MPI_Barrier(MPI_COMM_WORLD);
 	int neighbor = compute_neighbor(phase, rank, size);
@@ -68,9 +70,10 @@ int main(int argc, char *argv[]) {
 	    }
 	}
     }
-    clock_t end=clock();
+    clock_t end2=clock();
     time_spent += (double)(end-begin)/CLOCKS_PER_SEC;
-    printf("time spent is %f seconds\n", time_spent);
+    time_spent2 += (double)(end2-begin2)/CLOCKS_PER_SEC;
+    printf("time spent for qsort is %f seconds\ntime spent for merging is %f seconds\n", time_spent,time_spent2);
 
     // Sequentially write the sorted array
     int signal = 0;
