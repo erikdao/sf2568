@@ -48,6 +48,10 @@ int main(int argc, char *argv[]) {
     if ((N % size != 0) && (rank >= N % size)) {
         x[I-1] = EMPTY_PLACEHOLDER;
     }
+
+    // printf("Rank %d; generated array ", rank);
+    // print_array(x, I);
+
     clock_t begin = clock();
     // Local sort
     qsort(x, I, sizeof(double), compare);
@@ -73,7 +77,9 @@ int main(int argc, char *argv[]) {
     clock_t end2=clock();
     time_spent += (double)(end-begin)/CLOCKS_PER_SEC;
     time_spent2 += (double)(end2-begin2)/CLOCKS_PER_SEC;
-    printf("time spent for qsort is %f seconds\ntime spent for merging is %f seconds\n", time_spent,time_spent2);
+    printf("time spent for qsort is %f seconds\ntime spent "
+    	   "for merging is %f seconds\n", time_spent,time_spent2);
+
 
     // Sequentially write the sorted array
     int signal = 0;
