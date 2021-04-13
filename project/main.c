@@ -46,8 +46,6 @@ int read_jpeg_file(char *fname) {
 
     jpeg_start_decompress(&cinfo);
 
-	jpeg_start_decompress(&cinfo);
-
     // Allocate the image data pointer, the image is flatten into a 1D array
     // TODO: Consider using a separate 2D array for each of the R, G, B channels
     raw_image = (unsigned char*) malloc(cinfo.output_width * cinfo.output_height * cinfo.num_components);
