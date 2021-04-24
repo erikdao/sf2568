@@ -4,3 +4,5 @@ Course project
 
 ## Usefule resources
 - Sample [code snippet](https://github.com/Tinker-S/libjpeg-sample/blob/master/jpeg_sample.c) to read JPEG images in C using the `libjpeg` library
+
+- Compile the sample `canny.c` with `gcc -o canny canny.c -lm`
