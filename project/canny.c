@@ -216,6 +216,9 @@ bool save_bmp(const char *filename, const bitmap_info_header_t *bmp_ih,
 }
  
 // if normalize is true, map pixels to range 0..MAX_BRIGHTNESS
+// kn: size of the kernel
+// nx: width of the image
+// ny: height of the
 void convolution(const pixel_t *in, pixel_t *out, const float *kernel,
                  const int nx, const int ny, const int kn,
                  const bool normalize)
