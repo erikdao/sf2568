@@ -50,28 +50,38 @@ pixel_t *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader);
 bool save_bmp(const char *fname, const bitmap_info_header_t *bmpInfoHeader, const pixel_t *data);
 
 int main(int argc, char *argv[]) {
-    int size, rank, tag = 100;
-
+    int size, rank,send_count, tag = 100;
+    
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     MPI_Status status;
+    int width = 3360;
+    int height = 5040;
+    send_count = (width * height) / size;
+    pixel_t *recv_data = malloc(send_count * sizeof(pixel_t));
 
     if (rank == 0) {
         static bitmap_info_header_t ih;
-        const pixel_t *in_image = read_bmp(argv[1], &ih);
+        pixel_t *in_image = read_bmp(argv[1], &ih);
         if (in_image == NULL) {
             fprintf(stderr, "Main process: error while reading BMP\n");
             return -1;
         }
         fprintf(stdout, "BMP image read!\n");
         fprintf(stdout, "Image size: w=%d, h=%d\n", ih.width, ih.height);
+        
+        //send_count = (ih.width * ih.height) / size;
+        recv_data = malloc(send_count * sizeof(pixel_t));
+        MPI_Scatter(in_image, send_count ,MPI_INT, recv_data, send_count, MPI_INT, 0, MPI_COMM_WORLD);
+
 
     } else {
         fprintf(stdout, "Processor: %d - No read\n", rank);
-    }
 
+    }
+    
     MPI_Finalize();
     return 0;
 }
