@@ -50,38 +50,47 @@ pixel_t *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader);
 bool save_bmp(const char *fname, const bitmap_info_header_t *bmpInfoHeader, const pixel_t *data);
 
 int main(int argc, char *argv[]) {
-    int size, rank,send_count, tag = 100;
-    
+    int size, rank, tag = 100;
+    int num_pixels; // Number of pixels of the original image
+    int my_count; // Number of pixels for each sub image
+
+    pixel_t *in_image = NULL;  // Input image
+    pixel_t *recv_buf = NULL;  // Buffer image
+    int im_width, im_height;
+
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     MPI_Status status;
-    int width = 3360;
-    int height = 5040;
-    send_count = (width * height) / size;
-    pixel_t *recv_data = malloc(send_count * sizeof(pixel_t));
 
     if (rank == 0) {
         static bitmap_info_header_t ih;
-        pixel_t *in_image = read_bmp(argv[1], &ih);
+        in_image = read_bmp(argv[1], &ih);
         if (in_image == NULL) {
             fprintf(stderr, "Main process: error while reading BMP\n");
             return -1;
         }
-        fprintf(stdout, "BMP image read!\n");
-        fprintf(stdout, "Image size: w=%d, h=%d\n", ih.width, ih.height);
-        
-        //send_count = (ih.width * ih.height) / size;
-        recv_data = malloc(send_count * sizeof(pixel_t));
-        MPI_Scatter(in_image, send_count ,MPI_INT, recv_data, send_count, MPI_INT, 0, MPI_COMM_WORLD);
-
-
-    } else {
-        fprintf(stdout, "Processor: %d - No read\n", rank);
-
+        im_width = ih.width;
+        im_height = ih.height;
+        num_pixels = im_width * im_height + 2;
+        my_count = num_pixels / size;
+        if (num_pixels % size != 0) {
+            my_count += (num_pixels % size);
+        }
     }
-    
+
+    // Broadcast my_count to all processes
+    MPI_Bcast(&my_count, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&im_width, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&im_height, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    recv_buf = malloc(im_width * im_height * sizeof(pixel_t));
+
+    fprintf(stdout, "Processor %d: my_count=%d, width=%d, height=%d\n", rank, my_count, im_width, im_height);
+
+    MPI_Scatter(in_image, num_pixels, MPI_SHORT_INT, recv_buf, my_count, MPI_SHORT_INT, 0, MPI_COMM_WORLD);
+
     MPI_Finalize();
     return 0;
 }
