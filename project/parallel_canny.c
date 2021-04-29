@@ -45,7 +45,7 @@ typedef struct {
 // Define a type for image pixel values
 typedef short int pixel_t;
 
-pixel_t *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader);
+int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader);
 
 bool save_bmp(const char *fname, const bitmap_info_header_t *bmpInfoHeader, const pixel_t *data);
 
@@ -54,8 +54,8 @@ int main(int argc, char *argv[]) {
     int num_pixels; // Number of pixels of the original image
     int my_count; // Number of pixels for each sub image
 
-    pixel_t *in_image = NULL;  // Input image
-    pixel_t *recv_buf = NULL;  // Buffer image
+    int *in_image = NULL;  // Input image
+    // pixel_t *recv_buf = NULL;  // Buffer image
     int im_width, im_height;
 
     MPI_Init(&argc, &argv);
@@ -73,11 +73,16 @@ int main(int argc, char *argv[]) {
         }
         im_width = ih.width;
         im_height = ih.height;
-        num_pixels = im_width * im_height + 2;
-        my_count = num_pixels / size;
+        num_pixels = im_width * im_height;
+        my_count = num_pixels / size; 
         if (num_pixels % size != 0) {
             my_count += (num_pixels % size);
         }
+        fprintf(stdout, "Master %d: my_count=%d, width=%d, height=%d\n", rank, my_count, im_width, im_height);
+        for (int i = 0; i < 10; i++) {
+            fprintf(stdout, "%d ", in_image[i]);
+        }
+        fprintf(stdout, "\n");
     }
 
     // Broadcast my_count to all processes
@@ -85,17 +90,18 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(&im_width, 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&im_height, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    recv_buf = malloc(im_width * im_height * sizeof(pixel_t));
+    int *recv_buf = (int *) malloc(my_count * sizeof(int));
 
-    fprintf(stdout, "Processor %d: my_count=%d, width=%d, height=%d\n", rank, my_count, im_width, im_height);
+    MPI_Scatter(in_image, my_count, MPI_INT, recv_buf, my_count, MPI_INT, 0, MPI_COMM_WORLD);
 
-    MPI_Scatter(in_image, num_pixels, MPI_SHORT_INT, recv_buf, my_count, MPI_SHORT_INT, 0, MPI_COMM_WORLD);
+
+    // MPI_Gather(in_image, my_count, MPI_INT, recv_buf, my_count, MPI_INT, 0, MPI_COMM_WORLD);
 
     MPI_Finalize();
     return 0;
 }
 
-pixel_t *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader) {
+int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader) {
     FILE *f = fopen(fname, "rb");
     if (f == NULL) {
         printf("Error while reading file");
@@ -130,8 +136,8 @@ pixel_t *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader) {
     }
  
     // allocate enough memory for the bitmap image data
-    pixel_t *bitmapImage = malloc(bmpInfoHeader->bmp_bytesz *
-                                  sizeof(pixel_t));
+    int *bitmapImage = malloc(bmpInfoHeader->bmp_bytesz *
+                                  sizeof(int));
 
     // read in the bitmap image data
     size_t pad, count=0;
@@ -143,7 +149,7 @@ pixel_t *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader) {
 			    fclose(f);
 			    return NULL;
 		    }
-		    bitmapImage[count++] = (pixel_t) c;
+		    bitmapImage[count++] = (int) c;
 	    }
 	    fseek(f, pad, SEEK_CUR);
     }
