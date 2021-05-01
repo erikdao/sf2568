@@ -104,6 +104,17 @@ int main(int argc, char *argv[]) {
     int sub_image_height = my_count / im_width; // Height of the sub-image
     int *edge_image = canny_edge_detection(recv_buf, im_width, sub_image_height, 45, 50, 1.0f);
 
+    char fname[20];
+    sprintf(fname, "outputs/%d.txt", rank);
+    FILE *f = fopen(fname, "w");
+    int count = 0;
+    for (int w = 0; w < im_width; w++) {
+        for (int h = 0; h < sub_image_height; h++) {
+            fprintf(f, "%d ", edge_image[count++]);
+        }
+        fprintf(f, "\n");
+    }
+    fclose(f);
     // MPI_Gather(in_image, my_count, MPI_INT, recv_buf, my_count, MPI_INT, 0, MPI_COMM_WORLD);
 
     MPI_Finalize();
