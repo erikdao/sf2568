@@ -42,7 +42,7 @@ typedef struct {
     uint8_t nothing;
 } rgb_t;
 
-int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader);
+int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader, int num_procs);
 
 bool save_bmp(const char *fname, const bitmap_info_header_t *bmpInfoHeader, const int *data);
 
@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
 
     if (rank == 0) {
         static bitmap_info_header_t ih;
-        in_image = read_bmp(argv[1], &ih);
+        in_image = read_bmp(argv[1], &ih, size);
         if (in_image == NULL) {
             fprintf(stderr, "Main process: error while reading BMP\n");
             return -1;
@@ -104,24 +104,60 @@ int main(int argc, char *argv[]) {
     int sub_image_height = my_count / im_width; // Height of the sub-image
     int *edge_image = canny_edge_detection(recv_buf, im_width, sub_image_height, 45, 50, 1.0f);
 
-    char fname[20];
-    sprintf(fname, "outputs/%d.txt", rank);
-    FILE *f = fopen(fname, "w");
-    int count = 0;
-    for (int w = 0; w < im_width; w++) {
+    // Sequential write subimage
+    int signal = 0;
+    char *fname = "out.txt";
+    // sprintf(fname, "outputs/out.", argv[1]);
+    FILE *f; 
+
+    if (rank == 0) {
+        f = fopen(fname, "w");
+        int count = 0;
         for (int h = 0; h < sub_image_height; h++) {
-            fprintf(f, "%d ", edge_image[count++]);
+            for (int w = 0; w < im_width; w++) {
+                fprintf(f, "%d ", edge_image[count++]);
+            }
+            fprintf(f, "\n");
         }
-        fprintf(f, "\n");
+        fclose(f);
+        fprintf(stdout, "Processor %d finished writing its subimage edges\n", rank);
+
+        signal = 1;
+        MPI_Send(&signal, 1, MPI_INT, rank+1, 100, MPI_COMM_WORLD);
+    } else {
+        MPI_Recv(&signal, 1, MPI_INT, rank-1, 100, MPI_COMM_WORLD, &status);
+
+        if (signal == 1) {
+            f = fopen(fname, "a");
+            int count = 0;
+            for (int h = 0; h < sub_image_height; h++) {
+                for (int w = 0; w < im_width; w++) {
+                    fprintf(f, "%d ", edge_image[count++]);
+                }
+                fprintf(f, "\n");
+            }
+            fclose(f);
+            if (rank != size - 1) {
+                MPI_Send(&signal, 1, MPI_INT, rank+1, 100, MPI_COMM_WORLD);
+                fprintf(stdout, "Processor %d finished writing its subedges, send signal to %d\n", rank, rank+1);
+            }
+        }
     }
-    fclose(f);
+
     // MPI_Gather(in_image, my_count, MPI_INT, recv_buf, my_count, MPI_INT, 0, MPI_COMM_WORLD);
+    // free(edge_image);
+    // free(in_image);
+    // free(recv_buf);
 
     MPI_Finalize();
     return 0;
 }
 
-int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader) {
+/**
+ * Read BMP image
+ * @param fname: 
+ */
+int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader, int num_procs) {
     FILE *f = fopen(fname, "rb");
     if (f == NULL) {
         printf("Error while reading file");
@@ -155,16 +191,30 @@ int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader) {
         return NULL;
     }
  
-    // allocate enough memory for the bitmap image data
-    int *bitmapImage = malloc(bmpInfoHeader->bmp_bytesz *
-                                  sizeof(int));
+    int32_t original_height = bmpInfoHeader-> height;
+    int added_lines = 0;
+    if (original_height % num_procs != 0) {
+        added_lines = num_procs - (original_height % num_procs);
+    }
 
+    int32_t new_height = original_height + added_lines;
+    int32_t new_width = bmpInfoHeader-> width;
+
+    // allocate enough memory for the bitmap image data
+    // int *bitmapImage = malloc(bmpInfoHeader->bmp_bytesz * sizeof(int));
+    int *bitmapImage = malloc(new_height * new_width * sizeof(int));
+
+    int count = 0;
+    // Pad the first line with 0
+    for (size_t w = 0; w < new_width; w++) {
+        bitmapImage[count++] = 0;
+    }
     // read in the bitmap image data
-    size_t pad, count=0;
+    size_t pad;
     unsigned char c;
     pad = 4*ceil(bmpInfoHeader->bitspp*bmpInfoHeader->width/32.) - bmpInfoHeader->width;
-    for(size_t i=0; i<bmpInfoHeader->height; i++){
-	    for(size_t j=0; j<bmpInfoHeader->width; j++){
+    for(size_t i = 0; i < new_height; i++ ) {  // i<bmpInfoHeader->height; i++){
+	    for(size_t j=0; j < new_width; j++) { // <bmpInfoHeader->width; j++){
 		    if (fread(&c, sizeof(unsigned char), 1, f) != 1) {
 			    fclose(f);
 			    return NULL;
@@ -172,6 +222,13 @@ int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader) {
 		    bitmapImage[count++] = (int) c;
 	    }
 	    fseek(f, pad, SEEK_CUR);
+    }
+
+    // Pad the rest of the height with 0
+    for (size_t i = 0; i < added_lines - 1; i++) {
+        for (size_t j = 0; j < new_width; j++) {
+            bitmapImage[count++] = 0;
+        }
     }
 
     fclose(f);
