@@ -9,6 +9,7 @@
 #include <mpi.h>
  
 #define MAX_BRIGHTNESS 255
+#define KERNEL_SIZE 7
 
 typedef struct {
     uint8_t magic[2];
@@ -56,53 +57,169 @@ void convolution(const int *in, int *out, const float *kernel,
 void gaussian_filter(const int *in, int *out,
                      const int nx, const int ny, const float sigma);
 
+int *pad_image(const int *orig_image, int pad_top, int pad_bottom, int width, int height);
+
 int main(int argc, char *argv[]) {
     int size, rank, tag = 100;
-    int num_pixels; // Number of pixels of the original image
-    int my_count; // Number of pixels for each sub image
 
-    int *in_image = NULL;  // Input image
-    // int *recv_buf = NULL;  // Buffer image
-    int im_width, im_height;
+    int *image = NULL;
+    int *sub_image = NULL;
+    int sub_image_height;
+
+    int orig_width, orig_height, im_width, im_height;
+    int my_count; // How many element I will receive from master
+    int my_sub_image_height; // The height of my sub image
+    int startIndex, endIndex; // My local start and end indices
+    int pad_top, pad_bottom;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     MPI_Status status;
+    pad_top = (int) (KERNEL_SIZE - 1)/2;
 
+    MPI_Barrier(MPI_COMM_WORLD);
     if (rank == 0) {
+        int *original_image = NULL; // Input image
+
         static bitmap_info_header_t ih;
-        in_image = read_bmp(argv[1], &ih);
-        if (in_image == NULL) {
+        original_image = read_bmp(argv[1], &ih);
+        if (original_image == NULL) {
             fprintf(stderr, "Main process: error while reading BMP\n");
             return -1;
         }
-        im_width = ih.width;
-        im_height = ih.height;
-        num_pixels = im_width * im_height;
-        my_count = num_pixels / size; 
-        if (num_pixels % size != 0) {
-            my_count += (num_pixels % size);
+        orig_width = ih.width;
+        orig_height = ih.height;
+        fprintf(stdout, "Original height=%d, width=%d\n", orig_height, orig_width);
+        im_width = orig_width;
+        // Padding images
+        im_height = orig_height + 2 * pad_top;
+        if (im_height % size != 0) {
+            pad_bottom = size - (im_height % size);
         }
-        fprintf(stdout, "Master %d: my_count=%d, width=%d, height=%d\n", rank, my_count, im_width, im_height);
-        for (int i = 0; i < 10; i++) {
-            fprintf(stdout, "%d ", in_image[i]);
+        // pad_bottom += pad_top;
+        im_height += pad_bottom;
+
+        image = pad_image(original_image, pad_top, pad_bottom, orig_width, orig_height);
+
+        // Sanity check
+        int non_zero = 0;
+        int count = 0;
+        for (int i = 0; i < im_height; i++) {
+            for (int j = 0; j < im_width; j++) {
+                if (image[count++] != 0) {
+                    non_zero += 1;
+                }
+            }
         }
-        fprintf(stdout, "\n");
+
+        fprintf(stdout, "Processor: %d, after padding non-zero elements: %d\n", rank, non_zero);
+        // Broadcast sub images to slave processor
+        MPI_Bcast(&im_height, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&im_width, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    } else {
+        MPI_Bcast(&im_height, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&im_width, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    // if (rank == 0 || rank == size - 1) {
+    //     my_sub_image_height = im_height / size + pad_top;
+    // } else if ( rank > 0 && rank < size - 1) {
+    //     my_sub_image_height = im_height / size + 2 * pad_top;
+    // }
+    // my_count = my_sub_image_height * im_width;
+    if (rank > 0 && rank < size - 1) {
+        startIndex = rank * im_height / size - pad_top;
+        endIndex = (rank+1) * im_height / size + pad_top;
+    } else { // Last partition
+        startIndex = rank * im_height / size - pad_top;
+        endIndex = (rank+1) * im_height / size;
+    }
+    my_sub_image_height = endIndex - startIndex;
+    my_count = my_sub_image_height * im_width;
+
+    fprintf(stdout, "Processor: %d, im_height=%d, im_width=%d, pad_top=%d, my_count=%d, sub_image=%d\n",
+                    rank, im_height, im_width, pad_top, my_count, my_sub_image_height);
+
+    // Allocate memory for the sub image to be sent
+    sub_image = malloc(my_count * sizeof(int));
+    if (sub_image == NULL) {
+        fprintf(stderr, "Error while allocating sub_image memory!");
     }
 
-    // Broadcast my_count to all processes
-    MPI_Bcast(&my_count, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&im_width, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&im_height, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    if (rank == 0) {
+        // Send subimage to each slave processor
+        for (int p_i = 1; p_i < size; p_i++) {
+            // Copy the portion of the sub image from the `image`                
+            if (p_i > 0 && p_i < size - 1) {
+                startIndex = p_i * im_height / size - pad_top;
+                endIndex = (p_i+1) * im_height / size + pad_top;
+            } else { // Last partition
+                startIndex = p_i * im_height / size - pad_top;
+                endIndex = (p_i+1) * im_height / size;
+            }
+            // printf("p_i = %d; end-start=%d, sub_image=%d, sub_image * im_width=%d, my_count = %d\n",
+            //             p_i, endIndex - startIndex, my_sub_image_height * im_width, my_count);
+            int count = 0;
+            printf("p_i = %d; end-start=%d\n", p_i, endIndex - startIndex);
+            for (int i = startIndex; i < endIndex - 1; i++) {
+                for (int j = 0; j < im_width; j++) {
+                    sub_image[count] = image[i * im_width + j];
+                    // printf("%d ", image[i * im_width + j]);
+                    count++;
+                }
+            }
 
-    int *recv_buf = (int*) malloc(my_count * sizeof(int));
+            // Sanity check
+            int non_zero = 0;
+            count = 0;
+            for (int i = 0; i < my_sub_image_height; i++) {
+                for (int j = 0; j < im_width; j++) {
+                    if (sub_image[count] != 0) {
+                        non_zero += 1;
+                    }
+                    count++;
+                }
+            }
 
-    MPI_Scatter(in_image, my_count, MPI_INT, recv_buf, my_count, MPI_INT, 0, MPI_COMM_WORLD);
+            fprintf(stdout, "Processor: %d, sub image before sending from master. non-zero elements: %d\n", rank, non_zero);
 
-    int sub_image_height = my_count / im_width; // Height of the sub-image
-    int *edge_image = canny_edge_detection(recv_buf, im_width, sub_image_height, 45, 50, 1.0f);
+            MPI_Send(sub_image, my_count, MPI_INT, p_i, tag, MPI_COMM_WORLD);
+        }
+
+        free(sub_image);
+        sub_image = malloc(my_count * sizeof(int));
+        // For master processor, don't need to send its partition, just copy
+        startIndex = 0;
+        endIndex = im_height / size + pad_top;
+        printf("startIndex %d, endIndex: %d\n", startIndex, endIndex);
+        int count = 0;
+        for (int i = startIndex; i < endIndex; i++) {
+            for (int j = 0; j < im_width; j++) {
+                sub_image[count] = image[i * im_width + j];
+                count++;
+            }
+        }
+    } else { // slave processes
+        MPI_Recv(sub_image, my_count, MPI_INT, 0, tag, MPI_COMM_WORLD, &status);
+    }
+
+    // Sanity check
+    int non_zero = 0;
+    int count = 0;
+    for (int i = 0; i < my_sub_image_height; i++) {
+        for (int j = 0; j < im_width; j++) {
+            if (sub_image[count++] != 0) {
+                non_zero += 1;
+            }
+        }
+    }
+
+    fprintf(stdout, "Processor: %d, non-zero elements: %d\n", rank, non_zero);
+
+    int *edge_image = canny_edge_detection(sub_image, im_width, my_sub_image_height, 45, 50, 1.0f);
 
     // Sequential write subimage
     int signal = 0;
@@ -113,7 +230,7 @@ int main(int argc, char *argv[]) {
     if (rank == 0) {
         f = fopen(fname, "w");
         int count = 0;
-        for (int h = 0; h < sub_image_height; h++) {
+        for (int h = 0; h < my_sub_image_height - pad_top; h++) {
             for (int w = 0; w < im_width; w++) {
                 fprintf(f, "%d ", edge_image[count++]);
             }
@@ -130,11 +247,26 @@ int main(int argc, char *argv[]) {
         if (signal == 1) {
             f = fopen(fname, "a");
             int count = 0;
-            for (int h = 0; h < sub_image_height; h++) {
-                for (int w = 0; w < im_width; w++) {
-                    fprintf(f, "%d ", edge_image[count++]);
+            // Skip padded-top rows
+            for (int i = 0; i < pad_top; i++) {
+                for (int j = 0; j < im_width; j++) {
+                    count++;
                 }
-                fprintf(f, "\n");
+            }
+            if (rank > 0 && rank < size - 1) {
+                for (int h = 0; h < my_sub_image_height - 2 * pad_top; h++) {
+                    for (int w = 0; w < im_width; w++) {
+                        fprintf(f, "%d ", edge_image[count++]);
+                    }
+                    fprintf(f, "\n");
+                }
+            } else {
+                for (int h = 0; h < my_sub_image_height - 2 * pad_top; h++) {
+                    for (int w = 0; w < im_width; w++) {
+                        fprintf(f, "%d ", edge_image[count++]);
+                    }
+                    fprintf(f, "\n");
+                }
             }
             fclose(f);
             if (rank != size - 1) {
@@ -143,11 +275,6 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-
-    // MPI_Gather(in_image, my_count, MPI_INT, recv_buf, my_count, MPI_INT, 0, MPI_COMM_WORLD);
-    // free(edge_image);
-    // free(in_image);
-    // free(recv_buf);
 
     MPI_Finalize();
     return 0;
@@ -212,6 +339,37 @@ int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader) {
 
     fclose(f);
     return bitmapImage;
+}
+
+int *pad_image(const int *orig_image, int pad_top, int pad_bottom, int width, int height) {
+    // Allocate memory for new image
+    int *image = malloc(width * (height + 2 * pad_top + pad_bottom) * sizeof(int));
+
+    // Pad the top lines
+    int count = 0;
+    for (int i = 0; i < pad_top; i++) {
+        for (int j = 0; j < width; j++) {
+            image[count++] = 0;
+        }
+    }
+
+    // Copy original image to the new image
+    int iterator = 0;
+    for (int i = 0; i < height; i++) {
+        for (int j = 0; j < width; j++) {
+            image[count + iterator] = orig_image[iterator];
+            iterator++;
+        }
+    }
+
+    // Pad the bottom lines
+    count += iterator;
+    for (int i = 0; i < (pad_top + pad_bottom); i++) {
+        for (int j = 0; j < width; j++) {
+            image[count++] = 0;
+        }
+    }
+    return image;
 }
 
 void convolution(const int *in, int *out, const float *kernel,

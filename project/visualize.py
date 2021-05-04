@@ -4,7 +4,7 @@ Visualize edges
 import os
 import sys
 import numpy as np
-import png
+# import png
 import matplotlib.pyplot as plt
 
 def main():
