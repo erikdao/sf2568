@@ -42,7 +42,7 @@ typedef struct {
     uint8_t nothing;
 } rgb_t;
 
-int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader, int num_procs);
+int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader);
 
 bool save_bmp(const char *fname, const bitmap_info_header_t *bmpInfoHeader, const int *data);
 
@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
 
     if (rank == 0) {
         static bitmap_info_header_t ih;
-        in_image = read_bmp(argv[1], &ih, size);
+        in_image = read_bmp(argv[1], &ih);
         if (in_image == NULL) {
             fprintf(stderr, "Main process: error while reading BMP\n");
             return -1;
@@ -157,7 +157,7 @@ int main(int argc, char *argv[]) {
  * Read BMP image
  * @param fname: 
  */
-int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader, int num_procs) {
+int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader) {
     FILE *f = fopen(fname, "rb");
     if (f == NULL) {
         printf("Error while reading file");
@@ -190,31 +190,17 @@ int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader, int num_pr
         fclose(f);
         return NULL;
     }
- 
-    int32_t original_height = bmpInfoHeader-> height;
-    int added_lines = 0;
-    if (original_height % num_procs != 0) {
-        added_lines = num_procs - (original_height % num_procs);
-    }
-
-    int32_t new_height = original_height + added_lines;
-    int32_t new_width = bmpInfoHeader-> width;
 
     // allocate enough memory for the bitmap image data
-    // int *bitmapImage = malloc(bmpInfoHeader->bmp_bytesz * sizeof(int));
-    int *bitmapImage = malloc(new_height * new_width * sizeof(int));
+    int *bitmapImage = malloc(bmpInfoHeader->bmp_bytesz * sizeof(int));
+    // int *bitmapImage = malloc(new_height * new_width * sizeof(int));
 
-    int count = 0;
-    // Pad the first line with 0
-    for (size_t w = 0; w < new_width; w++) {
-        bitmapImage[count++] = 0;
-    }
     // read in the bitmap image data
-    size_t pad;
+    size_t pad, count = 0;
     unsigned char c;
     pad = 4*ceil(bmpInfoHeader->bitspp*bmpInfoHeader->width/32.) - bmpInfoHeader->width;
-    for(size_t i = 0; i < new_height; i++ ) {  // i<bmpInfoHeader->height; i++){
-	    for(size_t j=0; j < new_width; j++) { // <bmpInfoHeader->width; j++){
+    for(size_t i = 0; i < bmpInfoHeader->height; i++ ) {
+	    for(size_t j=0; j < bmpInfoHeader->width; j++) {
 		    if (fread(&c, sizeof(unsigned char), 1, f) != 1) {
 			    fclose(f);
 			    return NULL;
@@ -222,13 +208,6 @@ int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader, int num_pr
 		    bitmapImage[count++] = (int) c;
 	    }
 	    fseek(f, pad, SEEK_CUR);
-    }
-
-    // Pad the rest of the height with 0
-    for (size_t i = 0; i < added_lines - 1; i++) {
-        for (size_t j = 0; j < new_width; j++) {
-            bitmapImage[count++] = 0;
-        }
     }
 
     fclose(f);
