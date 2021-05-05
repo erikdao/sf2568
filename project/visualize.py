@@ -21,9 +21,9 @@ def main():
             array.append(line_array)
     
     data = np.array(array)
-
+    print("data", data.shape)
     fig, ax = plt.subplots()
-    plt.imshow(data)
+    plt.imshow(data, cmap='gray')
     plt.savefig(f"{fname}.png")
     # png.from_array(data, 'L').save(f"{fname}.png")
 
