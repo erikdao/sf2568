@@ -9,7 +9,7 @@
 #include <mpi.h>
  
 #define MAX_BRIGHTNESS 255
-#define KERNEL_SIZE 5
+#define KERNEL_SIZE 3
 
 typedef struct {
     uint8_t magic[2];
@@ -379,6 +379,16 @@ int *pad_image(const int *orig_image, int pad_one, int pad_two, int width, int h
     return image;
 }
 
+/**
+ * Perform convolution operation
+ *
+ * @param in: input image
+ * @param out: output image
+ * @param kernel: the convolution kernel, a flatten 1D array
+ * @param nx: width of the input image
+ * @param ny: height of the input image
+ * @param kn: kernel size
+ **/ 
 void convolution(const int *in, int *out, const float *kernel,
                  const int nx, const int ny, const int kn,
                  const bool normalize)
@@ -392,7 +402,7 @@ void convolution(const int *in, int *out, const float *kernel,
         for (int m = khalf; m < nx - khalf; m++)
             for (int n = khalf; n < ny - khalf; n++) {
                 float pixel = 0.0;
-                size_t c = 0;
+                unsigned int c = 0;
                 for (int j = -khalf; j <= khalf; j++)
                     for (int i = -khalf; i <= khalf; i++) {
                         pixel += in[(n - j) * nx + m - i] * kernel[c];
@@ -404,10 +414,12 @@ void convolution(const int *in, int *out, const float *kernel,
                     max = pixel;
                 }
  
+    // Actual implementation of the convolution operation, i.e.
+    // element-wise multiplication of the kernel and the image patch
     for (int m = khalf; m < nx - khalf; m++)
         for (int n = khalf; n < ny - khalf; n++) {
             float pixel = 0.0;
-            size_t c = 0;
+            unsigned int c = 0;
             for (int j = -khalf; j <= khalf; j++)
                 for (int i = -khalf; i <= khalf; i++) {
                     pixel += in[(n - j) * nx + m - i] * kernel[c];
@@ -420,6 +432,14 @@ void convolution(const int *in, int *out, const float *kernel,
         }
 }
 
+/**
+ * Gaussian filter
+ * @param in: input image
+ * @param out: output image
+ * @param nx: width of the input image
+ * @param ny: height of the input image
+ * @param sigma: the standard deviation of the gaussian distribution
+ **/
 void gaussian_filter(const int *in, int *out,
                      const int nx, const int ny, const float sigma)
 {
@@ -427,7 +447,7 @@ void gaussian_filter(const int *in, int *out,
     const float mean = (float)floor(n / 2.0);
     float kernel[n * n]; // variable length array
  
-    size_t c = 0;
+    unsigned int c = 0;
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++) {
             kernel[c] = exp(-0.5 * (pow((i - mean) / sigma, 2.0) +
@@ -465,34 +485,34 @@ int *canny_edge_detection(const int *in, const int width, int const height,
         exit(1);
     }
  
-    gaussian_filter(in, out, nx, ny, sigma);
+    // gaussian_filter(in, out, nx, ny, sigma);
  
     // const float Gx[] = {-1, 0, 1,
     //                     -2, 0, 2,
     //                     -1, 0, 1};
 
     // Sobel filtering
-    // const float Gx[] = {1, 0, -1,
-    //                     2, 0, -2,
-    //                     1, 0, -1};
-    const float Gx[] = {2, 2, 4, 2, 2,
-                        1, 1, 2, 1, 1,
-                        0, 0, 0, 0, 0,
-                        -1, -1, -2, -1, -1,
-                        -2, -2, -4, -2, -2};
+    const float Gx[] = {1, 0, -1,
+                        2, 0, -2,
+                        1, 0, -1};
+    // const float Gx[] = {2, 2, 4, 2, 2,
+    //                     1, 1, 2, 1, 1,
+    //                     0, 0, 0, 0, 0,
+    //                     -1, -1, -2, -1, -1,
+    //                     -2, -2, -4, -2, -2};
 
-    convolution(out, after_Gx, Gx, nx, ny, 3, false);
+    convolution(in, after_Gx, Gx, nx, ny, 3, false);
  
-    // const float Gy[] = { 1, 2, 1,
-    //                      0, 0, 0,
-    //                     -1,-2,-1};
-    const float Gy[] = { 2, 1, 0, -1, -2,
-                         2, 1, 0, -1, -2,
-                         4, 2, 0, -2, -4,
-                         2, 1, 0, -1, -2,
-                         2, 1, 0, -1, -2};
+    const float Gy[] = { 1, 2, 1,
+                         0, 0, 0,
+                        -1,-2,-1};
+    // const float Gy[] = { 2, 1, 0, -1, -2,
+    //                      2, 1, 0, -1, -2,
+    //                      4, 2, 0, -2, -4,
+    //                      2, 1, 0, -1, -2,
+    //                      2, 1, 0, -1, -2};
  
-    convolution(out, after_Gy, Gy, nx, ny, 3, false);
+    convolution(in, after_Gy, Gy, nx, ny, 3, false);
  
     for (int i = 1; i < nx - 1; i++)
         for (int j = 1; j < ny - 1; j++) {
