@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <time.h>
  
 #define MAX_BRIGHTNESS 255
  
@@ -302,7 +303,7 @@ void gaussian_filter(const pixel_t *in, pixel_t *out,
  *
  * Note: T1 and T2 are lower and upper thresholds.
  */
-pixel_t *canny_edge_detection(const pixel_t *in,
+pixel_t * canny_edge_detection(const pixel_t *in,
                               const bitmap_info_header_t *bmp_ih,
                               const int tmin, const int tmax,
                               const float sigma)
@@ -323,19 +324,19 @@ pixel_t *canny_edge_detection(const pixel_t *in,
         exit(1);
     }
  
-    gaussian_filter(in, out, nx, ny, sigma);
+    // gaussian_filter(in, out, nx, ny, sigma);
  
     const float Gx[] = {-1, 0, 1,
                         -2, 0, 2,
                         -1, 0, 1};
  
-    convolution(out, after_Gx, Gx, nx, ny, 3, false);
+    convolution(in, after_Gx, Gx, nx, ny, 3, false);
  
     const float Gy[] = { 1, 2, 1,
                          0, 0, 0,
                         -1,-2,-1};
  
-    convolution(out, after_Gy, Gy, nx, ny, 3, false);
+    convolution(in, after_Gy, Gy, nx, ny, 3, false);
  
     for (int i = 1; i < nx - 1; i++)
         for (int j = 1; j < ny - 1; j++) {
@@ -437,9 +438,12 @@ int main(const int argc, const char ** const argv)
     }
  
     printf("Info: %d x %d x %d\n", ih.width, ih.height, ih.bitspp);
- 
+    clock_t start = clock();
     const pixel_t *out_bitmap_data =
         canny_edge_detection(in_bitmap_data, &ih, 45, 50, 1.0f);
+    clock_t canny = clock();
+    double canny_time = (double) (canny - start) / CLOCKS_PER_SEC;
+    fprintf(stdout, "Sequential canny: %f\n", canny_time);
     if (out_bitmap_data == NULL) {
         fprintf(stderr, "main: failed canny_edge_detection.\n");
         return 1;
@@ -452,5 +456,9 @@ int main(const int argc, const char ** const argv)
  
     free((pixel_t*)in_bitmap_data);
     free((pixel_t*)out_bitmap_data);
+    clock_t end = clock();
+    double total_time = (double) (end - start) / CLOCKS_PER_SEC;
+    fprintf(stdout, "Sequential time %f\n", total_time);
+
     return 0;
 }

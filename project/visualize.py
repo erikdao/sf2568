@@ -1,10 +1,9 @@
 """
 Visualize edges
 """
-import os
 import sys
 import numpy as np
-import matplotlib.pyplot as plt
+from PIL import Image
 
 def main():
     fname = None
@@ -22,12 +21,8 @@ def main():
     data = np.array(array)
     print("data", data.shape, np.max(data), np.min(data))
 
-    image = np.flip(data)
-
-    fig, ax = plt.subplots()
-    plt.axis('off')
-    plt.imshow(image, cmap='gray')
-    plt.savefig(sys.argv[2], bbox_inches='tight')
+    image = Image.fromarray(np.flip(data, axis=0).astype(np.uint8))
+    image.save(sys.argv[2])
 
 if __name__ == '__main__':
     main()

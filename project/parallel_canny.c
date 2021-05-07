@@ -86,7 +86,6 @@ int main(int argc, char *argv[]) {
     MPI_Status status;
     pad_one = (int) (KERNEL_SIZE - 1)/2;
 
-    MPI_Barrier(MPI_COMM_WORLD);
     if (rank == 0) {
         int *original_image = NULL; // Input image
 
@@ -108,15 +107,12 @@ int main(int argc, char *argv[]) {
         }
 
         image = pad_image(original_image, pad_one, pad_two, orig_width, orig_height);
-
-        // Broadcast sub images to slave processor
-        MPI_Bcast(&im_height, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&im_width, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    } else {
-        MPI_Bcast(&im_height, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Bcast(&im_width, 1, MPI_INT, 0, MPI_COMM_WORLD);
     }
+
     MPI_Barrier(MPI_COMM_WORLD);
+    clock_t start = clock();
+    MPI_Bcast(&im_height, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&im_width, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     // Calculate the local indices on each processor
     if (rank == 0) {
@@ -132,8 +128,8 @@ int main(int argc, char *argv[]) {
     my_sub_image_height = endIndex - startIndex;
     my_count = my_sub_image_height * im_width;
 
-    fprintf(stdout, "Processor: %d, im_height=%d, im_width=%d, pad_one=%d, my_count=%d, sub_image=%d\n",
-                    rank, im_height, im_width, pad_one, my_count, my_sub_image_height);
+    // fprintf(stdout, "Processor: %d, im_height=%d, im_width=%d, pad_one=%d, my_count=%d, sub_image=%d\n",
+    //                 rank, im_height, im_width, pad_one, my_count, my_sub_image_height);
 
     // Allocate memory for the sub image to be sent
     sub_image = malloc(2 * my_count * sizeof(int));
@@ -154,7 +150,7 @@ int main(int argc, char *argv[]) {
                 pEndIndex = (p_i+1) * im_height / size;
             }
             int count = 0;
-            fprintf(stdout, "p_i = %d; end-start=%d, end=%d, start=%d\n", p_i, pEndIndex - pStartIndex, pEndIndex, pStartIndex);
+            // fprintf(stdout, "p_i = %d; end-start=%d, end=%d, start=%d\n", p_i, pEndIndex - pStartIndex, pEndIndex, pStartIndex);
             for (int i = pStartIndex; i < pEndIndex - 1; i++) {
                 for (int j = 0; j < im_width; j++) {
                     sub_image[count] = image[i * im_width + j];
@@ -170,7 +166,7 @@ int main(int argc, char *argv[]) {
         // For master processor, don't need to send its partition, just copy
         startIndex = 0;
         endIndex = im_height / size + pad_one;
-        printf("startIndex %d, endIndex: %d\n", startIndex, endIndex);
+        // printf("startIndex %d, endIndex: %d\n", startIndex, endIndex);
         int count = 0;
         for (int i = startIndex; i < endIndex; i++) {
             for (int j = 0; j < im_width; j++) {
@@ -182,10 +178,10 @@ int main(int argc, char *argv[]) {
         MPI_Recv(sub_image, my_count, MPI_INT, 0, tag, MPI_COMM_WORLD, &status);
     }
 
-    clock_t start = clock();
+    clock_t start_canny = clock();
     int *edge_image = canny_edge_detection(sub_image, im_width, my_sub_image_height, 45, 50, 1.0f);
-    clock_t end = clock();
-    double edge_time = ((double) (end - start)) / CLOCKS_PER_SEC;
+    clock_t end_canny = clock();
+    double edge_time = ((double) (end_canny - start_canny)) / CLOCKS_PER_SEC;
     fprintf(stdout, "Processor %d, Canny algorithm took %f seconds\n", rank, edge_time);
 
     // Sequential write subimage
@@ -246,6 +242,12 @@ int main(int argc, char *argv[]) {
     free(image);
     free(sub_image);
     MPI_Finalize();
+
+    if (rank == size - 1) {
+        clock_t final = clock();
+        double total_time = ((double) (final - start)) / CLOCKS_PER_SEC;
+        fprintf(stdout, "Processor %d, Total time %f seconds\n", rank, total_time);
+    }
     return 0;
 }
 
@@ -457,24 +459,23 @@ int *canny_edge_detection(const int *in, const int width, int const height,
     const float Gx[] = {1, 0, -1,
                         2, 0, -2,
                         1, 0, -1};
-    // const float Gx[] = {2, 2, 4, 2, 2,
-    //                     1, 1, 2, 1, 1,
-    //                     0, 0, 0, 0, 0,
-    //                     -1, -1, -2, -1, -1,
-    //                     -2, -2, -4, -2, -2};
-
-    convolution(in, after_Gx, Gx, nx, ny, 3, false);
- 
-    const float Gy[] = { 1, 2, 1,
-                         0, 0, 0,
-                        -1,-2,-1};
-    // const float Gy[] = { 2, 1, 0, -1, -2,
+    // const float Gx[] = { 2, 1, 0, -1, -2,
     //                      2, 1, 0, -1, -2,
     //                      4, 2, 0, -2, -4,
     //                      2, 1, 0, -1, -2,
     //                      2, 1, 0, -1, -2};
+    convolution(in, after_Gx, Gx, nx, ny, KERNEL_SIZE, false);
  
-    convolution(in, after_Gy, Gy, nx, ny, 3, false);
+    const float Gy[] = { 1, 2, 1,
+                         0, 0, 0,
+                        -1,-2,-1};
+    // const float Gy[] =  {2,  2,  4,  2,  2,
+    //                      1,  1,  2,  1,  1,
+    //                      0,  0,  0,  0,  0,
+    //                     -1, -1, -2, -1, -1,
+    //                     -2, -2, -4, -2, -2};
+ 
+    convolution(in, after_Gy, Gy, nx, ny, KERNEL_SIZE, false);
  
     for (int i = 1; i < nx - 1; i++)
         for (int j = 1; j < ny - 1; j++) {
