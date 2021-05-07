@@ -4,7 +4,6 @@ Visualize edges
 import os
 import sys
 import numpy as np
-# import png
 import matplotlib.pyplot as plt
 
 def main():
@@ -22,11 +21,13 @@ def main():
     
     data = np.array(array)
     print("data", data.shape, np.max(data), np.min(data))
+
+    image = np.flip(data)
+
     fig, ax = plt.subplots()
-    # plt.imshow(data, cmap='Greys', interpolation='none')
-    plt.imshow(data, cmap='gray')
-    plt.savefig(f"{fname}.png")
-    # png.from_array(data, 'L').save(f"{fname}.png")
+    plt.axis('off')
+    plt.imshow(image, cmap='gray')
+    plt.savefig(sys.argv[2], bbox_inches='tight')
 
 if __name__ == '__main__':
     main()

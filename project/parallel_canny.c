@@ -4,9 +4,10 @@
 #include <float.h>
 #include <math.h>
 #include <string.h>
-#include <stdbool.h>
 #include <assert.h>
+#include <stdbool.h>
 #include <mpi.h>
+#include <time.h>
  
 #define MAX_BRIGHTNESS 255
 #define KERNEL_SIZE 3
@@ -108,18 +109,6 @@ int main(int argc, char *argv[]) {
 
         image = pad_image(original_image, pad_one, pad_two, orig_width, orig_height);
 
-        // Sanity check
-        int non_zero = 0;
-        int count = 0;
-        for (int i = 0; i < im_height; i++) {
-            for (int j = 0; j < im_width; j++) {
-                if (image[count++] != 0) {
-                    non_zero += 1;
-                }
-            }
-        }
-
-        fprintf(stdout, "Processor: %d, after padding non-zero elements: %d\n", rank, non_zero);
         // Broadcast sub images to slave processor
         MPI_Bcast(&im_height, 1, MPI_INT, 0, MPI_COMM_WORLD);
         MPI_Bcast(&im_width, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -164,30 +153,14 @@ int main(int argc, char *argv[]) {
                 pStartIndex = p_i * im_height / size - pad_one;
                 pEndIndex = (p_i+1) * im_height / size;
             }
-            // printf("p_i = %d; end-start=%d, sub_image=%d, sub_image * im_width=%d, my_count = %d\n",
-            //             p_i, endIndex - startIndex, my_sub_image_height * im_width, my_count);
             int count = 0;
-            printf("p_i = %d; end-start=%d, end=%d, start=%d\n", p_i, pEndIndex - pStartIndex, pEndIndex, pStartIndex);
+            fprintf(stdout, "p_i = %d; end-start=%d, end=%d, start=%d\n", p_i, pEndIndex - pStartIndex, pEndIndex, pStartIndex);
             for (int i = pStartIndex; i < pEndIndex - 1; i++) {
                 for (int j = 0; j < im_width; j++) {
                     sub_image[count] = image[i * im_width + j];
                     count++;
                 }
             }
-
-            // Sanity check
-            int non_zero = 0;
-            count = 0;
-            for (int i = 0; i < my_sub_image_height; i++) {
-                for (int j = 0; j < im_width; j++) {
-                    if (sub_image[count] != 0) {
-                        non_zero += 1;
-                    }
-                    count++;
-                }
-            }
-
-            fprintf(stdout, "Processor: %d, sub image before sending from master. non-zero elements: %d\n", rank, non_zero);
 
             MPI_Send(sub_image, my_count, MPI_INT, p_i, tag, MPI_COMM_WORLD);
         }
@@ -209,20 +182,11 @@ int main(int argc, char *argv[]) {
         MPI_Recv(sub_image, my_count, MPI_INT, 0, tag, MPI_COMM_WORLD, &status);
     }
 
-    // Sanity check
-    int non_zero = 0;
-    int count = 0;
-    for (int i = 0; i < my_sub_image_height; i++) {
-        for (int j = 0; j < im_width; j++) {
-            if (sub_image[count++] != 0) {
-                non_zero += 1;
-            }
-        }
-    }
-
-    fprintf(stdout, "Processor: %d, non-zero elements: %d\n", rank, non_zero);
-
+    clock_t start = clock();
     int *edge_image = canny_edge_detection(sub_image, im_width, my_sub_image_height, 45, 50, 1.0f);
+    clock_t end = clock();
+    double edge_time = ((double) (end - start)) / CLOCKS_PER_SEC;
+    fprintf(stdout, "Processor %d, Canny algorithm took %f seconds\n", rank, edge_time);
 
     // Sequential write subimage
     int signal = 0;
@@ -279,6 +243,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    free(image);
+    free(sub_image);
     MPI_Finalize();
     return 0;
 }
@@ -487,10 +453,6 @@ int *canny_edge_detection(const int *in, const int width, int const height,
  
     // gaussian_filter(in, out, nx, ny, sigma);
  
-    // const float Gx[] = {-1, 0, 1,
-    //                     -2, 0, 2,
-    //                     -1, 0, 1};
-
     // Sobel filtering
     const float Gx[] = {1, 0, -1,
                         2, 0, -2,
@@ -517,7 +479,6 @@ int *canny_edge_detection(const int *in, const int width, int const height,
     for (int i = 1; i < nx - 1; i++)
         for (int j = 1; j < ny - 1; j++) {
             const int c = i + nx * j;
-            // G[c] = abs(after_Gx[c]) + abs(after_Gy[c]);
             G[c] = (int)hypot(after_Gx[c], after_Gy[c]);
         }
  
