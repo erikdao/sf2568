@@ -1,3 +1,10 @@
+/**
+ * Paralleled Edge Detection for High-Resolution Images
+ * Course Project for SF2568 - Parallel Computation for Large-Scale Problems
+ * 
+ * Cuong Dao (cuongdd@kth.se), Donggyun Park (donggyun@kth.se) 
+ * 
+ **/
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,8 +16,8 @@
 #include <mpi.h>
 #include <time.h>
  
-#define MAX_BRIGHTNESS 255
-#define KERNEL_SIZE 3
+#define MAX_BRIGHTNESS 255  // "White" pixel of the image
+#define KERNEL_SIZE 3  // Use for convolution
 
 typedef struct {
     uint8_t magic[2];
@@ -44,6 +51,9 @@ typedef struct {
     uint8_t nothing;
 } rgb_t;
 
+/**
+ * Function prototypes 
+ */
 int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader);
 
 bool save_bmp(const char *fname, const bitmap_info_header_t *bmpInfoHeader, const int *data);
@@ -98,6 +108,11 @@ int main(int argc, char *argv[]) {
         orig_width = ih.width;
         orig_height = ih.height;
         fprintf(stdout, "Original height=%d, width=%d\n", orig_height, orig_width);
+
+        // Apply Gaussian filter to denoise the image
+        int *blurred_image = malloc(ih.width * ih.height * sizeof(int));
+        gaussian_filter(original_image, blurred_image, ih.width, ih.height, 1.0f);
+
         im_width = orig_width;
         // Padding images
         im_height = orig_height + 2 * pad_one;
@@ -106,7 +121,7 @@ int main(int argc, char *argv[]) {
             im_height += pad_two;
         }
 
-        image = pad_image(original_image, pad_one, pad_two, orig_width, orig_height);
+        image = pad_image(blurred_image, pad_one, pad_two, orig_width, orig_height);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -127,9 +142,6 @@ int main(int argc, char *argv[]) {
     }
     my_sub_image_height = endIndex - startIndex;
     my_count = my_sub_image_height * im_width;
-
-    // fprintf(stdout, "Processor: %d, im_height=%d, im_width=%d, pad_one=%d, my_count=%d, sub_image=%d\n",
-    //                 rank, im_height, im_width, pad_one, my_count, my_sub_image_height);
 
     // Allocate memory for the sub image to be sent
     sub_image = malloc(2 * my_count * sizeof(int));
@@ -291,10 +303,9 @@ int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader) {
 
     // allocate enough memory for the bitmap image data
     int *bitmapImage = malloc(bmpInfoHeader->bmp_bytesz * sizeof(int));
-    // int *bitmapImage = malloc(new_height * new_width * sizeof(int));
 
     // read in the bitmap image data
-    size_t pad, count = 0;
+    unsigned int pad, count = 0;
     unsigned char c;
     pad = 4*ceil(bmpInfoHeader->bitspp*bmpInfoHeader->width/32.) - bmpInfoHeader->width;
     for(size_t i = 0; i < bmpInfoHeader->height; i++ ) {
@@ -361,8 +372,6 @@ void convolution(const int *in, int *out, const float *kernel,
                  const int nx, const int ny, const int kn,
                  const bool normalize)
 {
-    assert(kn % 2 == 1);
-    assert(nx > kn && ny > kn);
     const int khalf = kn / 2;
     float min = FLT_MAX, max = -FLT_MAX;
  
@@ -418,10 +427,7 @@ void gaussian_filter(const int *in, int *out,
     unsigned int c = 0;
     for (int i = 0; i < n; i++)
         for (int j = 0; j < n; j++) {
-            kernel[c] = exp(-0.5 * (pow((i - mean) / sigma, 2.0) +
-                                    pow((j - mean) / sigma, 2.0)))
-                        / (2 * M_PI * sigma * sigma);
-            c++;
+            kernel[c++] = exp(-0.5 * (pow((i - mean) / sigma, 2.0) + pow((j - mean) / sigma, 2.0))) / (2 * M_PI * sigma * sigma);
         }
  
     convolution(in, out, kernel, nx, ny, n, true);
@@ -443,19 +449,10 @@ int *canny_edge_detection(const int *in, const int width, int const height,
     int *G = calloc(nx * ny * sizeof(int), 1);  // Gradient
     int *after_Gx = calloc(nx * ny * sizeof(int), 1);  // Gradient in x direction
     int *after_Gy = calloc(nx * ny * sizeof(int), 1);  // Gradient in y direction
-    int *nms = calloc(nx * ny * sizeof(int), 1);
+    int *nms = calloc(nx * ny * sizeof(int), 1); // Output of non-maximum suppression
     int *out = malloc(nx * ny * sizeof(int));  // Output edge image
  
-    if (G == NULL || after_Gx == NULL || after_Gy == NULL ||
-        nms == NULL || out == NULL) {
-        fprintf(stderr, "canny_edge_detection:"
-                " Failed memory allocation(s).\n");
-        exit(1);
-    }
- 
-    // gaussian_filter(in, out, nx, ny, sigma);
- 
-    // Sobel filtering
+    // Sobel operators
     const float Gx[] = {1, 0, -1,
                         2, 0, -2,
                         1, 0, -1};
@@ -474,7 +471,6 @@ int *canny_edge_detection(const int *in, const int width, int const height,
     //                      0,  0,  0,  0,  0,
     //                     -1, -1, -2, -1, -1,
     //                     -2, -2, -4, -2, -2};
- 
     convolution(in, after_Gy, Gy, nx, ny, KERNEL_SIZE, false);
  
     for (int i = 1; i < nx - 1; i++)
@@ -483,7 +479,7 @@ int *canny_edge_detection(const int *in, const int width, int const height,
             G[c] = (int)hypot(after_Gx[c], after_Gy[c]);
         }
  
-    // Non-maximum suppression, straightforward implementation.
+    // Non-maximum suppression
     for (int i = 1; i < nx - 1; i++)
         for (int j = 1; j < ny - 1; j++) {
             const int c = i + nx * j;
@@ -496,9 +492,7 @@ int *canny_edge_detection(const int *in, const int width, int const height,
             const int sw = ss + 1;
             const int se = ss - 1;
  
-            const float dir = (float)(fmod(atan2(after_Gy[c],
-                                                 after_Gx[c]) + M_PI,
-                                           M_PI) / M_PI) * 8;
+            const float dir = (float)(fmod(atan2(after_Gy[c], after_Gx[c]) + M_PI, M_PI) / M_PI) * 8;
  
             if (((dir <= 1 || dir > 7) && G[c] > G[ee] &&
                  G[c] > G[ww]) || // 0 deg
@@ -519,8 +513,8 @@ int *canny_edge_detection(const int *in, const int width, int const height,
     memset(out, 0, sizeof(int) * nx * ny);
     memset(edges, 0, sizeof(int) * nx * ny);
  
-    // Tracing edges with hysteresis . Non-recursive implementation.
-    size_t c = 1;
+    // Tracing edges with hysteresis
+    unsigned int c = 1;
     for (int j = 1; j < ny - 1; j++)
         for (int i = 1; i < nx - 1; i++) {
             if (nms[c] >= tmax && out[c] == 0) { // trace edges
