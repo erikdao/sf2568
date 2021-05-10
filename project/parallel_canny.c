@@ -17,7 +17,20 @@
 #include <time.h>
  
 #define MAX_BRIGHTNESS 255  // "White" pixel of the image
-#define KERNEL_SIZE 3  // Use for convolution
+
+/*
+ * Loading part taken from
+ * http://www.vbforums.com/showthread.php?t=261522
+ * BMP info:
+ * http://en.wikipedia.org/wiki/BMP_file_format
+ *
+ * Note: the magic number has been removed from the bmpfile_header_t
+ * structure since it causes alignment problems
+ *     bmpfile_magic_t should be written/read first
+ * followed by the
+ *     bmpfile_header_t
+ * [this avoids compiler-specific alignment pragmas etc.]
+ */
 
 typedef struct {
     uint8_t magic[2];
@@ -58,8 +71,9 @@ int *read_bmp(const char *fname, bitmap_info_header_t *bmpInfoHeader);
 
 bool save_bmp(const char *fname, const bitmap_info_header_t *bmpInfoHeader, const int *data);
 
-int *canny_edge_detection(const int *in, const int width, int const height,
-                          const int tmin, const int tmax, const float sigma);
+int *canny_edge_detection(const int *in, const int kernel, const int width,
+                          const int height, const int tmin, const int tmax,
+                          const float sigma);
 
 void convolution(const int *in, int *out, const float *kernel,
                  const int nx, const int ny, const int kn,
@@ -70,7 +84,24 @@ void gaussian_filter(const int *in, int *out,
 
 int *pad_image(const int *orig_image, int pad_one, int pad_two, int width, int height);
 
+void write_output(const int rank, const int size, const char *fname, const int *image, int with, int height, int pad_one);
+
+/**
+ * Main entry to the program.
+ * 
+ * The command to run this program is
+ * mpirun -np NUM_PROCS parallelcanny K input_image output_file
+ * @param NUM_PROCS: number of processor
+ * @param K: Convolution kernal size (3 or 5)
+ * @param input_image: Path to the input BMP image
+ * @param output_file: Path to save the output result 
+ **/
 int main(int argc, char *argv[]) {
+    if (argc != 4) {
+        fprintf(stderr, "Invalid parameters, run the program with: \n"
+                        "parallelcanny K input_image output_file\n");
+        exit(1);
+    }
     int size, rank, tag = 100;
 
     int *image = NULL;
@@ -81,6 +112,8 @@ int main(int argc, char *argv[]) {
     int my_count; // How many element I will receive from master
     int my_sub_image_height; // The height of my sub image
     int startIndex, endIndex; // My local start and end indices
+
+    int kernel = atoi(argv[1]); // Kernel size for the convolution
 
     /** We'll first pad the top and the bottom of the height with
      * `pad_one` lines of zero.
@@ -94,13 +127,17 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     MPI_Status status;
-    pad_one = (int) (KERNEL_SIZE - 1)/2;
+    pad_one = (int) (kernel - 1)/2;
 
+    /**
+     * Read the input image, do some pre-processing such as blurring
+     * and padding on the master processor before sending out sub-images to slaves
+     **/
     if (rank == 0) {
         int *original_image = NULL; // Input image
 
         static bitmap_info_header_t ih;
-        original_image = read_bmp(argv[1], &ih);
+        original_image = read_bmp(argv[2], &ih);
         if (original_image == NULL) {
             fprintf(stderr, "Main process: error while reading BMP\n");
             return -1;
@@ -109,10 +146,12 @@ int main(int argc, char *argv[]) {
         orig_height = ih.height;
         fprintf(stdout, "Original height=%d, width=%d\n", orig_height, orig_width);
 
+        fprintf(stdout, "Applying Gaussian filter to denoise image\n");
         // Apply Gaussian filter to denoise the image
         int *blurred_image = malloc(ih.width * ih.height * sizeof(int));
         gaussian_filter(original_image, blurred_image, ih.width, ih.height, 1.0f);
-
+        im_width = orig_width;
+        im_height = orig_height;
         im_width = orig_width;
         // Padding images
         im_height = orig_height + 2 * pad_one;
@@ -121,6 +160,7 @@ int main(int argc, char *argv[]) {
             im_height += pad_two;
         }
 
+        fprintf(stdout, "Padding the images with zeros\n");
         image = pad_image(blurred_image, pad_one, pad_two, orig_width, orig_height);
     }
 
@@ -161,8 +201,7 @@ int main(int argc, char *argv[]) {
                 pStartIndex = p_i * im_height / size - pad_one;
                 pEndIndex = (p_i+1) * im_height / size;
             }
-            int count = 0;
-            // fprintf(stdout, "p_i = %d; end-start=%d, end=%d, start=%d\n", p_i, pEndIndex - pStartIndex, pEndIndex, pStartIndex);
+            int count = 0;;
             for (int i = pStartIndex; i < pEndIndex - 1; i++) {
                 for (int j = 0; j < im_width; j++) {
                     sub_image[count] = image[i * im_width + j];
@@ -176,9 +215,6 @@ int main(int argc, char *argv[]) {
         free(sub_image);
         sub_image = malloc(my_count * sizeof(int));
         // For master processor, don't need to send its partition, just copy
-        startIndex = 0;
-        endIndex = im_height / size + pad_one;
-        // printf("startIndex %d, endIndex: %d\n", startIndex, endIndex);
         int count = 0;
         for (int i = startIndex; i < endIndex; i++) {
             for (int j = 0; j < im_width; j++) {
@@ -191,65 +227,12 @@ int main(int argc, char *argv[]) {
     }
 
     clock_t start_canny = clock();
-    int *edge_image = canny_edge_detection(sub_image, im_width, my_sub_image_height, 45, 50, 1.0f);
+    int *edge_image = canny_edge_detection(sub_image, kernel, im_width, my_sub_image_height, 45, 50, 1.0f);
     clock_t end_canny = clock();
     double edge_time = ((double) (end_canny - start_canny)) / CLOCKS_PER_SEC;
     fprintf(stdout, "Processor %d, Canny algorithm took %f seconds\n", rank, edge_time);
 
-    // Sequential write subimage
-    int signal = 0;
-    char *fname = "out.txt";
-    // sprintf(fname, "outputs/out.", argv[1]);
-    FILE *f; 
-
-    if (rank == 0) {
-        f = fopen(fname, "w");
-        int count = 0;
-        for (int h = pad_one; h < my_sub_image_height - 2 * pad_one; h++) {
-            for (int w = 0; w < im_width; w++) {
-                fprintf(f, "%d ", edge_image[count++]);
-            }
-            fprintf(f, "\n");
-        }
-        fclose(f);
-        fprintf(stdout, "Processor %d finished writing its subimage edges\n", rank);
-
-        signal = 1;
-        MPI_Send(&signal, 1, MPI_INT, rank+1, 100, MPI_COMM_WORLD);
-    } else {
-        MPI_Recv(&signal, 1, MPI_INT, rank-1, 100, MPI_COMM_WORLD, &status);
-
-        if (signal == 1) {
-            f = fopen(fname, "a");
-            int count = 0;
-            // Skip padded-top rows
-            for (int i = 0; i < pad_one; i++) {
-                for (int j = 0; j < im_width; j++) {
-                    count++;
-                }
-            }
-            if (rank > 0 && rank < size - 1) {
-                for (int h = pad_one; h < my_sub_image_height - 2 * pad_one; h++) {
-                    for (int w = 0; w < im_width; w++) {
-                        fprintf(f, "%d ", edge_image[count++]);
-                    }
-                    fprintf(f, "\n");
-                }
-            } else {
-                for (int h = pad_one; h < my_sub_image_height; h++) {
-                    for (int w = 0; w < im_width; w++) {
-                        fprintf(f, "%d ", edge_image[count++]);
-                    }
-                    fprintf(f, "\n");
-                }
-            }
-            fclose(f);
-            if (rank != size - 1) {
-                MPI_Send(&signal, 1, MPI_INT, rank+1, 100, MPI_COMM_WORLD);
-                fprintf(stdout, "Processor %d finished writing its subedges, send signal to %d\n", rank, rank+1);
-            }
-        }
-    }
+    write_output(rank, size, argv[3], edge_image, im_width, my_sub_image_height, pad_one);
 
     free(image);
     free(sub_image);
@@ -433,6 +416,14 @@ void gaussian_filter(const int *in, int *out,
     convolution(in, out, kernel, nx, ny, n, true);
 }
 
+/*
+ * Reference:
+ * http://en.wikipedia.org/wiki/Canny_edge_detector
+ * http://www.tomgibara.com/computer-vision/CannyEdgeDetector.java
+ * http://fourier.eng.hmc.edu/e161/lectures/canny/node1.html
+ * http://www.songho.ca/dsp/cannyedge/cannyedge.html
+ */
+
 /**
  * Canny algorithm for edge detection
  * @param in: input image
@@ -440,8 +431,7 @@ void gaussian_filter(const int *in, int *out,
  * @param height: height of the input image
  * @param tmin: Minimum threshold
  */
-int *canny_edge_detection(const int *in, const int width, int const height,
-                          const int tmin, const int tmax, const float sigma)
+int *canny_edge_detection(const int *in, const int kernel, const int width, int const height, const int tmin, const int tmax, const float sigma)
 {
     const int nx = width;
     const int ny = height;
@@ -453,25 +443,35 @@ int *canny_edge_detection(const int *in, const int width, int const height,
     int *out = malloc(nx * ny * sizeof(int));  // Output edge image
  
     // Sobel operators
-    const float Gx[] = {1, 0, -1,
-                        2, 0, -2,
-                        1, 0, -1};
-    // const float Gx[] = { 2, 1, 0, -1, -2,
-    //                      2, 1, 0, -1, -2,
-    //                      4, 2, 0, -2, -4,
-    //                      2, 1, 0, -1, -2,
-    //                      2, 1, 0, -1, -2};
-    convolution(in, after_Gx, Gx, nx, ny, KERNEL_SIZE, false);
+    float Gx3[] = {1, 0, -1,
+                  2, 0, -2,
+                  1, 0, -1};
+    float Gx5[] = { 2, 1, 0, -1, -2,
+        2, 1, 0, -1, -2,
+        4, 2, 0, -2, -4,
+        2, 1, 0, -1, -2,
+        2, 1, 0, -1, -2};
+    float *Gx = Gx3;
+
+    if (kernel == 5) {
+        Gx = Gx5;
+    }
+    convolution(in, after_Gx, Gx, nx, ny, kernel, false);
  
-    const float Gy[] = { 1, 2, 1,
-                         0, 0, 0,
-                        -1,-2,-1};
-    // const float Gy[] =  {2,  2,  4,  2,  2,
-    //                      1,  1,  2,  1,  1,
-    //                      0,  0,  0,  0,  0,
-    //                     -1, -1, -2, -1, -1,
-    //                     -2, -2, -4, -2, -2};
-    convolution(in, after_Gy, Gy, nx, ny, KERNEL_SIZE, false);
+    float Gy3[] = { 1, 2, 1,
+                   0, 0, 0,
+                   -1,-2,-1};
+    float Gy5[] = {2,  2,  4,  2,  2,
+              1,  1,  2,  1,  1,
+              0,  0,  0,  0,  0,
+             -1, -1, -2, -1, -1,
+             -2, -2, -4, -2, -2};
+    
+    float *Gy = Gy3;
+    if (kernel == 5) {
+        Gy = Gy5;
+    }
+    convolution(in, after_Gy, Gy, nx, ny, kernel, false);
  
     for (int i = 1; i < nx - 1; i++)
         for (int j = 1; j < ny - 1; j++) {
@@ -553,4 +553,59 @@ int *canny_edge_detection(const int *in, const int width, int const height,
     free(nms);
  
     return out;
+}
+
+void write_output(const int rank, const int size, const char *fname, const int *image, int width, int height, int pad_one) {
+    MPI_Status status;
+    int signal = 0;
+    FILE *f; 
+
+    if (rank == 0) {
+        f = fopen(fname, "w");
+        int count = 0;
+        for (int h = pad_one; h < height - 2 * pad_one; h++) {
+            for (int w = 0; w < width; w++) {
+                fprintf(f, "%d ", image[count++]);
+            }
+            fprintf(f, "\n");
+        }
+        fclose(f);
+        fprintf(stdout, "Processor %d finished writing its subimage edges\n", rank);
+
+        signal = 1;
+        MPI_Send(&signal, 1, MPI_INT, rank+1, 100, MPI_COMM_WORLD);
+    } else {
+        MPI_Recv(&signal, 1, MPI_INT, rank-1, 100, MPI_COMM_WORLD, &status);
+
+        if (signal == 1) {
+            f = fopen(fname, "a");
+            int count = 0;
+            // Skip padded-top rows
+            for (int i = 0; i < pad_one; i++) {
+                for (int j = 0; j < width; j++) {
+                    count++;
+                }
+            }
+            if (rank > 0 && rank < size - 1) {
+                for (int h = pad_one; h < height - 2 * pad_one; h++) {
+                    for (int w = 0; w < width; w++) {
+                        fprintf(f, "%d ", image[count++]);
+                    }
+                    fprintf(f, "\n");
+                }
+            } else {
+                for (int h = pad_one; h < height; h++) {
+                    for (int w = 0; w < width; w++) {
+                        fprintf(f, "%d ", image[count++]);
+                    }
+                    fprintf(f, "\n");
+                }
+            }
+            fclose(f);
+            if (rank != size - 1) {
+                MPI_Send(&signal, 1, MPI_INT, rank+1, 100, MPI_COMM_WORLD);
+                fprintf(stdout, "Processor %d finished writing its subedges, send signal to %d\n", rank, rank+1);
+            }
+        }
+    }
 }
